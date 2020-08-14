@@ -4,10 +4,6 @@ from torch.nn import Module, Linear, LayerNorm
 from transformers import BertPreTrainedModel, LongformerModel, LongformerConfig
 from transformers.modeling_bert import ACT2FN
 
-# TODO: from data import PAD_ID_FOR_COREF, NULL_ID_FOR_COREF
-PAD_ID_FOR_COREF = -1
-NULL_ID_FOR_COREF = 0
-
 
 class FullyConnectedLayer(Module):
     # TODO: many layers
@@ -79,35 +75,34 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
 
         return loss
 
-    def _prepare_antecedent_matrix(self, mention_labels, antecedent_labels, seq_length):
+    def _prepare_antecedent_matrix(self, antecedent_labels, seq_length):
         """
-        :param mention_labels: [batch_size, num_mentions]
-        :param antecedent_labels: [batch_size, num_mentions, cluster_size]
-        :param attention_mask: [batch_size, seq_length]
+        :param antecedent_labels: [batch_size, seq_length, cluster_size]
         :return: [batch_size, seq_length, seq_length]
         """
-        device = mention_labels.device
+        device = antecedent_labels.device
         batch_size, num_mentions, cluster_size = antecedent_labels.size()
 
         # We now prepare a tensor with the gold antecedents for each span
         labels = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
-        mention_labels = mention_labels.unsqueeze(-1).repeat(cluster_size)  # [batch_size, num_mentions, cluster_size]
-        batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).unsqueeze(-1).repeat(1, num_mentions,
+        batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).unsqueeze(-1).repeat(1, seq_length,
                                                                                                 cluster_size)
-        labels[batch_temp, mention_labels, antecedent_labels] = 1.0
+        seq_length_temp = torch.arange(seq_length, device=device).unsqueeze(0).unsqueeze(-1).repeat(batch_size, 1,
+                                                                                                    cluster_size)
+
+        labels[batch_temp, seq_length_temp, antecedent_labels] = 1.0
+        labels[:, :, -1] = 0.0  # Fix all pad-antecedents
 
         return labels
 
-    def _compute_antecedent_loss(self, mention_labels, antecedent_labels, antecedent_logits, attention_mask=None):
+    def _compute_antecedent_loss(self, antecedent_labels, antecedent_logits, attention_mask=None):
         """
-        :param mention_labels: [batch_size, num_mentions]
         :param antecedent_labels: [batch_size, seq_length, cluster_size]
         :param antecedent_logits: [batch_size, seq_length, seq_length]
         :param attention_mask: [batch_size, seq_length]
         """
         seq_length = antecedent_logits.size(-1)
-        labels = self._prepare_antecedent_matrix(mention_labels, antecedent_labels,
-                                                 seq_length)  # [batch_size, seq_length, seq_length]
+        labels = self._prepare_antecedent_matrix(antecedent_labels, seq_length)  # [batch_size, seq_length, seq_length]
 
         antecedents_mask = torch.ones_like(antecedent_logits).triu() * (-1e8)  # [batch_size, seq_length, seq_length]
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
@@ -164,15 +159,13 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
                 end_entity_mention_labels=end_entity_mention_labels,
                 mention_logits=mention_logits,
                 attention_mask=attention_mask)
-            start_coref_loss = self._compute_antecedent_loss(mention_labels=start_entity_mention_labels,
-                                                             antecedent_labels=start_antecedent_labels,
+            start_coref_loss = self._compute_antecedent_loss(antecedent_labels=start_antecedent_labels,
                                                              antecedent_logits=start_coref_logits,
                                                              attention_mask=attention_mask)
-            end_coref_loss = self._compute_antecedent_loss(mention_labels=end_entity_mention_labels,
-                                                           antecedent_labels=end_antecedent_labels,
+            end_coref_loss = self._compute_antecedent_loss(antecedent_labels=end_antecedent_labels,
                                                            antecedent_logits=end_coref_logits,
                                                            attention_mask=attention_mask)
             loss = entity_mention_loss + start_coref_loss + end_coref_loss
-            outputs = (loss, ) + outputs
+            outputs = (loss,) + outputs
 
         return outputs

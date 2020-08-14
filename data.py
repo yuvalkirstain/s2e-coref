@@ -12,6 +12,7 @@ CorefExample = namedtuple("CorefExample", ["input_ids", "attention_mask", "clust
 SPEAKER_START = 49518  # 'Ġ#####'
 SPEAKER_END = 22560  # 'Ġ###'
 
+# TODO - Should be magic numbers?
 PAD_ID_FOR_COREF = -1
 NULL_ID_FOR_COREF = 0
 
