@@ -66,7 +66,7 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         full_entity_mentions[batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
         full_entity_mentions[:, 0, 0] = 0.0  # Remove the padded mentions
 
-        weights = attention_mask.unsqueeze(-1) + attention_mask.unsqueeze(-2)
+        weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
 
         loss_fct = nn.BCEWithLogitsLoss(weight=weights)
         loss = loss_fct(mention_logits, full_entity_mentions)
