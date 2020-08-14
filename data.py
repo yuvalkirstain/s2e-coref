@@ -113,6 +113,11 @@ class CorefDataset(Dataset):
         return zip(*self.pad_mentions(flatten_list_of_lists(clusters)))
 
 
+def get_dataset(args, tokenizer, evaluate=False):
+    file_path = args.predict_file if evaluate else args.train_file
+    return CorefDataset(file_path, tokenizer, args.max_seq_length, args.max_mentions, args.max_clusters)
+
+
 if __name__ == "__main__":
     # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
