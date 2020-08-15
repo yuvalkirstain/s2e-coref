@@ -91,7 +91,8 @@ def main():
         args.max_seq_length = tokenizer.max_len  # Our input block size is the max possible for the model
     args.max_seq_length = min(args.max_seq_length, tokenizer.max_len)
 
-    model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path, *args, config=config)
+    model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path,
+                                                               config=config)
     model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)
 
@@ -111,7 +112,6 @@ def main():
         train_dataset = get_dataset(args, tokenizer=tokenizer) if args.do_train else None
         global_step, tr_loss = train(args, train_dataset, model, tokenizer, evaluator)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
-        train_dataset.close()
 
     # Saving best-practices: if you use save_pretrained for the model and tokenizer,
     # you can reload them using from_pretrained()

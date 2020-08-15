@@ -2,3 +2,6 @@ data
 .idea/inspectionProfiles
 .idea
 .python-version
+cache
+output
+run_squad.py

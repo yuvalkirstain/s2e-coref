@@ -93,6 +93,12 @@ def parse_args():
         "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
     )
 
+    parser.add_argument(
+        "--num_workers", type=int, default=1
+    )
+    parser.add_argument("--nonfreeze_params", default=None, type=str,
+                        help="named parameters to update while training (separated by ,). The rest will kept frozen. If None or empty - train all")
+
     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int, help="Batch size per GPU/CPU for training.")
     parser.add_argument(
         "--per_gpu_eval_batch_size", default=8, type=int, help="Batch size per GPU/CPU for evaluation."
