@@ -70,7 +70,9 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
 
-        loss_fct = nn.BCEWithLogitsLoss(weight=weights)
+        num_positive_labels = torch.sum(full_entity_mentions)
+        num_negative_labels = torch.sum(1 - full_entity_mentions) - torch.sum(1 - weights)
+        loss_fct = nn.BCEWithLogitsLoss(weight=weights, pos_weight=num_negative_labels / num_positive_labels)
         loss = loss_fct(mention_logits, full_entity_mentions)
 
         return loss
