@@ -10,7 +10,7 @@ from transformers import AutoTokenizer
 
 # %%
 
-OUTPUT_DIR = "output_no_pos"
+OUTPUT_DIR = "output_pos"
 eval_data_path = os.path.join(OUTPUT_DIR, EVAL_DATA_FILE_NAME)
 
 
