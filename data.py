@@ -22,13 +22,14 @@ class CorefDataset(Dataset):
     def __init__(self, file_path, tokenizer, max_seq_len):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
-        examples, self.max_mention_num, self.max_cluster_size = self._parse_jsonlines(file_path)
+        examples, self.max_mention_num, self.max_cluster_size, self.max_num_clusters = self._parse_jsonlines(file_path)
         self.examples = self._tokenize(examples)
 
     def _parse_jsonlines(self, file_path):
         examples = []
         max_mention_num = -1
         max_cluster_size = -1
+        max_num_clusters = -1
         with open(file_path, 'r') as f:
             for line in f:
                 d = json.loads(line.strip())
@@ -36,9 +37,10 @@ class CorefDataset(Dataset):
                 clusters = d["clusters"]
                 max_mention_num = max(max_mention_num, len(flatten_list_of_lists(clusters)))
                 max_cluster_size = max(max_cluster_size, max(len(cluster) for cluster in clusters))
+                max_num_clusters = max(max_num_clusters, len(clusters))
                 speakers = flatten_list_of_lists(d["speakers"])
                 examples.append((input_words, clusters, speakers))
-        return examples, max_mention_num, max_cluster_size
+        return examples, max_mention_num, max_cluster_size, max_num_clusters
 
     def _add_speaker_info(self):
         raise NotImplementedError
@@ -80,9 +82,10 @@ class CorefDataset(Dataset):
             example.clusters)
         start_antecedents_indices, end_antecedents_indices = self.extract_boundaries_antecedents_indices(
             example.clusters)
+        clusters = self.pad_clusters(example.clusters)
         outputs = (torch.tensor(example.input_ids), torch.tensor(example.attention_mask), torch.tensor(
             start_entity_mentions_indices), torch.tensor(end_entity_mentions_indices), torch.tensor(
-            start_antecedents_indices), torch.tensor(end_antecedents_indices), torch.tensor(example.clusters))
+            start_antecedents_indices), torch.tensor(end_antecedents_indices), torch.tensor(clusters))
         return outputs
 
     def pad_mentions(self, pairs_lst):
@@ -114,6 +117,17 @@ class CorefDataset(Dataset):
     def extract_boundries_mention_indices(self, clusters):
         return zip(*self.pad_mentions(flatten_list_of_lists(clusters)))
 
+    def pad_clusters_inside(self, clusters):
+        return [cluster + [(NULL_ID_FOR_COREF, NULL_ID_FOR_COREF)] * (self.max_cluster_size - len(cluster)) for cluster in clusters]
+
+    def pad_clusters(self, clusters):
+        clusters = self.pad_clusters_outside(clusters)
+        clusters = self.pad_clusters_inside(clusters)
+        return clusters
+
+    def pad_clusters_outside(self, clusters):
+        return clusters + [[]] * (self.max_num_clusters - len(clusters))
+
 
 def get_dataset(args, tokenizer, evaluate=False):
     file_path = args.predict_file if evaluate else args.train_file
@@ -123,7 +137,7 @@ def get_dataset(args, tokenizer, evaluate=False):
 if __name__ == "__main__":
     # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-    dataset = CorefDataset(file_path="data/handmade_debug.jsonlines",
+    dataset = CorefDataset(file_path="data/sample.train.english.jsonlines",
                            tokenizer=tokenizer,
                            max_seq_len=25)
     example = dataset[0]
