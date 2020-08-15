@@ -82,7 +82,7 @@ class CorefDataset(Dataset):
             example.clusters)
         outputs = (torch.tensor(example.input_ids), torch.tensor(example.attention_mask), torch.tensor(
             start_entity_mentions_indices), torch.tensor(end_entity_mentions_indices), torch.tensor(
-            start_antecedents_indices), torch.tensor(end_antecedents_indices))
+            start_antecedents_indices), torch.tensor(end_antecedents_indices), torch.tensor(example.clusters))
         return outputs
 
     def pad_mentions(self, pairs_lst):
