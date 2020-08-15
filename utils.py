@@ -2,7 +2,7 @@ from collections import namedtuple, Counter
 import pickle
 import numpy as np
 # from scipy.optimize import linear_sum_assignment
-
+NULL_ID = 0
 EVAL_DATA_FILE_NAME = "eval_data.jsonl"
 EvalDataPoint = namedtuple("EvalDataPoint", ["input_ids",
                                              "attention_mask",
