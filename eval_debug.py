@@ -1,18 +1,20 @@
-#%%
+# %%
 
 import os
 import metrics
 from utils import read_examples, EVAL_DATA_FILE_NAME, NULL_ID
 import numpy as np
+from data import NULL_ID_FOR_COREF
 from collections import defaultdict
 from transformers import AutoTokenizer
 
-#%%
+# %%
 
-OUTPUT_DIR = "output"
+OUTPUT_DIR = "output_no_pos"
 eval_data_path = os.path.join(OUTPUT_DIR, EVAL_DATA_FILE_NAME)
-# tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-base-4096")
 
+
+# tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-base-4096")
 
 
 def find_and_remove_cluster_by_mention(mention, clusters):
@@ -37,18 +39,21 @@ def calc_clusters_predicted_by_mention_to_antecedent(mention_to_antecedent):
         clusters.append(united_cluster)
     return [tuple(cluster) for cluster in clusters]
 
-#%% md
+
+# %% md
 
 ### Implement here decoding strategies
 
-#%%
+# %%
 
 def trim_by_mention_then_brute_force(mention_logits, start_coref_logits, end_coref_logits):
-    candidate_mentions_ravel_ids = np.argpartition(mention_logits.reshape(-1), mention_logits.shape[0])[-mention_logits.shape[0]:]
+    candidate_mentions_ravel_ids = np.argpartition(mention_logits.reshape(-1), mention_logits.shape[0] * 10)[
+                                   -(mention_logits.shape[0] * 10):]
     candidate_mentions = {np.unravel_index(mention, mention_logits.shape) for mention in candidate_mentions_ravel_ids}
     return brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, candidate_mentions)
 
-#%%
+
+# %%
 def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, candidate_mentions=None):
     seq_len = len(start_coref_logits)
     mention_to_antecedent = {}
@@ -61,7 +66,8 @@ def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, can
             antecedent_ids = (NULL_ID, NULL_ID)  # null span
             for end_antecedent_mention_idx in range(start_mention_idx):
                 for start_antecedent_mention_idx in range(end_antecedent_mention_idx + 1):
-                    if candidate_mentions and (start_antecedent_mention_idx, end_antecedent_mention_idx) not in candidate_mentions:
+                    if candidate_mentions and (
+                    start_antecedent_mention_idx, end_antecedent_mention_idx) not in candidate_mentions:
                         continue
                     # antecedent_mention_score = mention_logits[start_antecedent_mention_idx, end_antecedent_mention_idx]
                     antecedent_start_score = start_coref_logits[start_mention_idx, start_antecedent_mention_idx]
@@ -74,7 +80,8 @@ def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, can
                 mention_to_antecedent[(start_mention_idx, end_mention_idx)] = antecedent_ids
     return calc_clusters_predicted_by_mention_to_antecedent(mention_to_antecedent)
 
-#%%
+
+# %%
 
 def debug_decode(clusters):
     clusters = clusters[:]
@@ -82,14 +89,14 @@ def debug_decode(clusters):
     return clusters
 
 
-#%%
+# %%
 
 decoding_func2name = {debug_decode: "debug_func",
-                      brute_force_decode: "brute_force",
-                      trim_by_mention_then_brute_force: "brute_force"}
+                      # brute_force_decode: "brute_force",
+                      trim_by_mention_then_brute_force: "trim_then_brute_force"}
 
 
-#%%
+# %%
 
 def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
     mention_to_gold = {}
@@ -99,14 +106,21 @@ def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
     return mention_to_gold
 
 
-#%%
+# %%
 
 
 # predicted_clusters, gold_clusters, mention_to_predicted, mention_to_gold
+def extract_clusters(gold_clusters):
+    gold_clusters = [tuple(tuple(m) for m in gc if NULL_ID_FOR_COREF not in m) for gc in gold_clusters.tolist()]
+    gold_clusters = [cluster for cluster in gold_clusters if len(cluster) > 0]
+    return gold_clusters
+
+#%%
+
 for decoding_func, name in decoding_func2name.items():
     coref_evaluator = metrics.CorefEvaluator()
     for eval_data_point in read_examples(eval_data_path):
-        gold_clusters = [tuple(tuple(m) for m in gc) for gc in eval_data_point.gold_clusters.tolist()]
+        gold_clusters = extract_clusters(eval_data_point.gold_clusters)
         mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
 
         if "debug" in name:
@@ -127,6 +141,4 @@ for decoding_func, name in decoding_func2name.items():
           f"precision: {dev_prec:.4f}, recall: {dev_rec:.4f}, f1: {dev_f1:.4f}")
 # TODO: .logging.info
 
-#%%
-
-
+# %%

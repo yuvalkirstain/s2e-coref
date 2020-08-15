@@ -106,23 +106,34 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         seq_length = antecedent_logits.size(-1)
         labels = self._prepare_antecedent_matrix(antecedent_labels, seq_length)  # [batch_size, seq_length, seq_length]
 
-        antecedents_mask = torch.ones_like(antecedent_logits).triu() * (-1e8)  # [batch_size, seq_length, seq_length]
-        antecedents_mask[:, 0, 0] = 0
-        antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
-
-        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8) #+ antecedents_mask
+        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
         gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
         all_log_sum_exp = torch.logsumexp(antecedent_logits, dim=-1)  # [batch_size, seq_length]
 
         gold_log_probs = gold_log_sum_exp - all_log_sum_exp
         losses = -gold_log_probs
 
+        only_positive_labels = labels.clone()
+        only_positive_labels[:, :, 0] = 0
+        num_positive_examples = torch.sum(only_positive_labels)
+        num_negative_examples = torch.sum(labels[:, :, 0]) - torch.sum(1 - attention_mask)
+        pos_weight = (num_negative_examples / num_positive_examples) - 1
+        loss_weights = (torch.sum(only_positive_labels, dim=-1) * pos_weight) + 1
+        losses = losses * loss_weights
+
         attention_mask_to_add = torch.zeros_like(attention_mask)
         attention_mask_to_add[:, 0] = -1
         attention_mask = attention_mask + attention_mask_to_add
         sum_losses = torch.sum(losses * attention_mask)
         num_examples = torch.sum(attention_mask)
-        return sum_losses / (num_examples + 1e-8)
+        loss = sum_losses / (num_examples + 1e-8)
+        return loss
+
+    def mask_antecedent_logits(self, antecedent_logits):
+        antecedents_mask = torch.ones_like(antecedent_logits).triu() * (-1e8)  # [batch_size, seq_length, seq_length]
+        antecedents_mask[:, 0, 0] = 0
+        antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
+        return antecedent_logits
 
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, return_all_outputs=False):
@@ -151,9 +162,11 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, seq_length, dim]
         start_coref_logits = torch.matmul(temp,
                                           start_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
-
+        start_coref_logits = self.mask_antecedent_logits(start_coref_logits)
         temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, seq_length, dim]
         end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+        end_coref_logits = self.mask_antecedent_logits(end_coref_logits)
+
 
         outputs = outputs[2:]
         if return_all_outputs:
