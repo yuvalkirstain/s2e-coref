@@ -115,6 +115,9 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         gold_log_probs = gold_log_sum_exp - all_log_sum_exp
         losses = -gold_log_probs
 
+        attention_mask_to_add = torch.zeros_like(attention_mask)
+        attention_mask_to_add[:, 0] = -1
+        attention_mask = attention_mask + attention_mask_to_add
         sum_losses = torch.sum(losses * attention_mask)
         num_examples = torch.sum(attention_mask)
         return sum_losses / (num_examples + 1e-8)
