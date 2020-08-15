@@ -120,7 +120,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
             batch = tuple(tensor.to(args.device) for tensor in batch)
-            input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices = batch
+            input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
             model.train()
 
             outputs = model(input_ids=input_ids,
