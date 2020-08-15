@@ -123,7 +123,8 @@ def get_dataset(args, tokenizer, evaluate=False):
 if __name__ == "__main__":
     # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-    dataset = CorefDataset(file_path="data/sample.train.english.jsonlines",
+    dataset = CorefDataset(file_path="data/handmade_debug.jsonlines",
                            tokenizer=tokenizer,
-                           max_seq_len=1000)
+                           max_seq_len=25)
     example = dataset[0]
+    x = 5

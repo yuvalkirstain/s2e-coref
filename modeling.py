@@ -105,9 +105,11 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         labels = self._prepare_antecedent_matrix(antecedent_labels, seq_length)  # [batch_size, seq_length, seq_length]
 
         antecedents_mask = torch.ones_like(antecedent_logits).triu() * (-1e8)  # [batch_size, seq_length, seq_length]
+        antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
 
-        gold_log_sum_exp = torch.logsumexp(antecedent_logits * labels, dim=-1)  # [batch_size, seq_length]
+        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8) #+ antecedents_mask
+        gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
         all_log_sum_exp = torch.logsumexp(antecedent_logits, dim=-1)  # [batch_size, seq_length]
 
         gold_log_probs = gold_log_sum_exp - all_log_sum_exp
