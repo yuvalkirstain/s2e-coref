@@ -23,7 +23,7 @@ class CorefDataset(Dataset):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
         examples, self.max_mention_num, self.max_cluster_size, self.max_num_clusters = self._parse_jsonlines(file_path)
-        self.examples = self._tokenize(examples)
+        self.examples, self.lengths = self._tokenize(examples)
 
     def _parse_jsonlines(self, file_path):
         examples = []
@@ -47,6 +47,7 @@ class CorefDataset(Dataset):
 
     def _tokenize(self, examples):
         coref_examples = []
+        lengths = []
         for words, clusters, speakers in examples:
             word_idx_to_token_idx = dict()
             token_ids = []
@@ -66,12 +67,13 @@ class CorefDataset(Dataset):
 
             new_clusters = [[(word_idx_to_token_idx[start], word_idx_to_token_idx[end]) for start, end in cluster] for
                             cluster in clusters]
+            lengths.append(len(token_ids))
             encoded_dict = self.tokenizer.encode_plus(token_ids, add_special_tokens=True, pad_to_max_length=True,
                                                       max_length=self.max_seq_len, return_attention_mask=True)
             coref_examples.append(
                 CorefExample(input_ids=encoded_dict['input_ids'], attention_mask=encoded_dict['attention_mask'],
                              clusters=new_clusters))
-        return coref_examples
+        return coref_examples, lengths
 
     def __len__(self):
         return len(self.examples)
