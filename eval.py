@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
+from coref_bucket_batch_sampler import BucketBatchSampler
 from data import get_dataset
 from utils import write_examples, EVAL_DATA_FILE_NAME
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class Evaluator:
 
         # Note that DistributedSampler samples randomly
         # eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
-        eval_dataloader = DataLoader(eval_dataset, batch_size=self.eval_batch_size)
+        eval_dataloader = BucketBatchSampler(eval_dataset, batch_size=self.eval_batch_size)
 
         # Eval!
         logger.info("***** Running evaluation {} *****".format(prefix))

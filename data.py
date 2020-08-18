@@ -7,7 +7,7 @@ from utils import flatten_list_of_lists
 from torch.utils.data import Dataset
 from transformers import RobertaTokenizer
 
-CorefExample = namedtuple("CorefExample", ["input_ids", "attention_mask", "clusters"])
+CorefExample = namedtuple("CorefExample", ["token_ids", "clusters"])
 
 SPEAKER_START = 49518  # 'Ġ#####'
 SPEAKER_END = 22560  # 'Ġ###'
@@ -19,9 +19,8 @@ NULL_ID_FOR_COREF = 0
 
 # TODO: bucketization
 class CorefDataset(Dataset):
-    def __init__(self, file_path, tokenizer, max_seq_len):
+    def __init__(self, file_path, tokenizer):
         self.tokenizer = tokenizer
-        self.max_seq_len = max_seq_len
         examples, self.max_mention_num, self.max_cluster_size, self.max_num_clusters = self._parse_jsonlines(file_path)
         self.examples, self.lengths = self._tokenize(examples)
 
@@ -68,40 +67,28 @@ class CorefDataset(Dataset):
             new_clusters = [[(word_idx_to_token_idx[start], word_idx_to_token_idx[end]) for start, end in cluster] for
                             cluster in clusters]
             lengths.append(len(token_ids))
-            encoded_dict = self.tokenizer.encode_plus(token_ids, add_special_tokens=True, pad_to_max_length=True,
-                                                      max_length=self.max_seq_len, return_attention_mask=True)
-            coref_examples.append(
-                CorefExample(input_ids=encoded_dict['input_ids'], attention_mask=encoded_dict['attention_mask'],
-                             clusters=new_clusters))
+
+            coref_examples.append(CorefExample(token_ids=token_ids, clusters=new_clusters))
         return coref_examples, lengths
 
     def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, item):
-        example = self.examples[item]
-        start_entity_mentions_indices, end_entity_mentions_indices = self.extract_boundries_mention_indices(
-            example.clusters)
-        start_antecedents_indices, end_antecedents_indices = self.extract_boundaries_antecedents_indices(
-            example.clusters)
-        clusters = self.pad_clusters(example.clusters)
-        outputs = (torch.tensor(example.input_ids), torch.tensor(example.attention_mask), torch.tensor(
-            start_entity_mentions_indices), torch.tensor(end_entity_mentions_indices), torch.tensor(
-            start_antecedents_indices), torch.tensor(end_antecedents_indices), torch.tensor(clusters))
-        return outputs
+        return self.examples[item]
 
     def pad_mentions(self, pairs_lst):
         return pairs_lst + [(PAD_ID_FOR_COREF, PAD_ID_FOR_COREF)] * (self.max_mention_num - len(pairs_lst))
 
-    def extract_boundaries_antecedents_indices(self, clusters):
+    def extract_boundaries_antecedents_indices(self, clusters, max_length):
         start_ids2start_cluster = defaultdict(list)
         end_ids2end_cluster = defaultdict(list)
         for cluster in clusters:
             starts, ends = zip(*cluster)
             self.update_boundry_ids2boundry_cluster(start_ids2start_cluster, starts)
             self.update_boundry_ids2boundry_cluster(end_ids2end_cluster, ends)
-        start_antecedent_labels = self.fill_antecedents(start_ids2start_cluster)
-        end_ids2end_cluster = self.fill_antecedents(end_ids2end_cluster)
+        start_antecedent_labels = self.fill_antecedents(start_ids2start_cluster, max_length)
+        end_ids2end_cluster = self.fill_antecedents(end_ids2end_cluster, max_length)
         return start_antecedent_labels, end_ids2end_cluster
 
     def pad_antecedents(self, antecedent_lst):
@@ -113,14 +100,15 @@ class CorefDataset(Dataset):
         for i, boundry in enumerate(boundries):
             boundry_ids2boundry_cluster[boundry] = boundries[:i]
 
-    def fill_antecedents(self, boundry_ids2boundry_cluster):
-        return [self.pad_antecedents(boundry_ids2boundry_cluster[idx]) for idx in range(self.max_seq_len)]
+    def fill_antecedents(self, boundry_ids2boundry_cluster, max_length):
+        return [self.pad_antecedents(boundry_ids2boundry_cluster[idx]) for idx in range(max_length)]
 
     def extract_boundries_mention_indices(self, clusters):
         return zip(*self.pad_mentions(flatten_list_of_lists(clusters)))
 
     def pad_clusters_inside(self, clusters):
-        return [cluster + [(NULL_ID_FOR_COREF, NULL_ID_FOR_COREF)] * (self.max_cluster_size - len(cluster)) for cluster in clusters]
+        return [cluster + [(NULL_ID_FOR_COREF, NULL_ID_FOR_COREF)] * (self.max_cluster_size - len(cluster)) for cluster
+                in clusters]
 
     def pad_clusters(self, clusters):
         clusters = self.pad_clusters_outside(clusters)
@@ -130,17 +118,43 @@ class CorefDataset(Dataset):
     def pad_clusters_outside(self, clusters):
         return clusters + [[]] * (self.max_num_clusters - len(clusters))
 
+    def pad_batch(self, batch, max_length):
+        padded_batch = []
+        for example in batch:
+            encoded_dict = self.tokenizer.encode_plus(example[0],
+                                                      add_special_tokens=True,
+                                                      pad_to_max_length=True,
+                                                      max_length=max_length,
+                                                      return_attention_mask=True,
+                                                      return_tensors='pt')
+            mention_antecedent_tensors = self.create_mention_antecedent_tensors(example, max_length)
+            example = (encoded_dict["input_ids"], encoded_dict["attention_mask"]) + mention_antecedent_tensors
+            padded_batch.append(example)
+        tensored_batch = tuple(torch.stack([example[i].squeeze() for example in padded_batch], dim=0) for i in range(7))
+        return tensored_batch
+
+    def create_mention_antecedent_tensors(self, example, max_length):
+        start_entity_mentions_indices, end_entity_mentions_indices = self.extract_boundries_mention_indices(
+            example.clusters)
+        start_antecedents_indices, end_antecedents_indices = self.extract_boundaries_antecedents_indices(
+            example.clusters, max_length)
+        clusters = self.pad_clusters(example.clusters)
+        return (torch.tensor(start_entity_mentions_indices),
+                torch.tensor(end_entity_mentions_indices),
+                torch.tensor(start_antecedents_indices),
+                torch.tensor(end_antecedents_indices),
+                torch.tensor(clusters))
+
 
 def get_dataset(args, tokenizer, evaluate=False):
     file_path = args.predict_file if evaluate else args.train_file
-    return CorefDataset(file_path, tokenizer, args.max_seq_length)
+    return CorefDataset(file_path, tokenizer)
 
 
 if __name__ == "__main__":
     # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
     dataset = CorefDataset(file_path="data/sample.train.english.jsonlines",
-                           tokenizer=tokenizer,
-                           max_seq_len=25)
+                           tokenizer=tokenizer)
     example = dataset[0]
     x = 5

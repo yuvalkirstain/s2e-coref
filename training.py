@@ -5,6 +5,7 @@ import numpy as np
 
 import torch
 from torch.utils.data import DataLoader
+from coref_bucket_batch_sampler import BucketBatchSampler
 # from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 
@@ -19,7 +20,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     #    tb_writer = SummaryWriter()
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers)
+    train_dataloader = BucketBatchSampler(train_dataset, batch_size=args.train_batch_size)
 
     if args.max_steps > 0:
         t_total = args.max_steps

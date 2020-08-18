@@ -87,9 +87,7 @@ def main():
             "and load it from here, using --tokenizer_name"
         )
 
-    if args.max_seq_length <= 0:
-        args.max_seq_length = tokenizer.max_len  # Our input block size is the max possible for the model
-    args.max_seq_length = min(args.max_seq_length, tokenizer.max_len)
+    args.max_seq_length = tokenizer.max_len
 
     model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path,
                                                                config=config)

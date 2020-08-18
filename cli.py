@@ -67,23 +67,6 @@ def parse_args():
         help="Where do you want to store the pre-trained models downloaded from s3",
     )
 
-    parser.add_argument(
-        "--max_seq_length",
-        default=1024,
-        type=int,
-        help="The maximum total input sequence length after WordPiece tokenization. Sequences "
-             "longer than this will be truncated, and sequences shorter than this will be padded.",
-    )
-    parser.add_argument(
-        "--max_mentions",
-        default=40,
-        type=int,
-    )
-    parser.add_argument(
-        "--max_clusters",
-        default=10,
-        type=int,
-    )
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")
     # parser.add_argument(
@@ -93,9 +76,6 @@ def parse_args():
         "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
     )
 
-    parser.add_argument(
-        "--num_workers", type=int, default=1
-    )
     parser.add_argument("--nonfreeze_params", default=None, type=str,
                         help="named parameters to update while training (separated by ,). The rest will kept frozen. If None or empty - train all")
 
