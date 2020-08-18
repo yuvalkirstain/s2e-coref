@@ -90,7 +90,8 @@ def main():
     args.max_seq_length = tokenizer.max_len
 
     model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path,
-                                                               config=config)
+                                                               config=config,
+                                                               antecedent_loss=args.antecedent_loss)
     model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)
 

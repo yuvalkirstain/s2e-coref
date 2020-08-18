@@ -29,9 +29,10 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
     config_class = LongformerConfig
     base_model_prefix = "longformer"
 
-    def __init__(self, config):
+    def __init__(self, config, antecedent_loss):
         super().__init__(config)
         self.num_labels = config.num_labels
+        self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
 
         self.longformer = LongformerModel(config)
 
@@ -105,28 +106,35 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         """
         seq_length = antecedent_logits.size(-1)
         labels = self._prepare_antecedent_matrix(antecedent_labels, seq_length)  # [batch_size, seq_length, seq_length]
-
-        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
-        gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
-        all_log_sum_exp = torch.logsumexp(antecedent_logits, dim=-1)  # [batch_size, seq_length]
-
-        gold_log_probs = gold_log_sum_exp - all_log_sum_exp
-        losses = -gold_log_probs
-
         only_positive_labels = labels.clone()
         only_positive_labels[:, :, 0] = 0
         num_positive_examples = torch.sum(only_positive_labels)
         num_negative_examples = torch.sum(labels[:, :, 0]) - torch.sum(1 - attention_mask)
-        pos_weight = (num_negative_examples / num_positive_examples) - 1
-        loss_weights = (torch.sum(only_positive_labels, dim=-1) * pos_weight) + 1
-        losses = losses * loss_weights
+        pos_weight = num_negative_examples / num_positive_examples
+        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
 
-        attention_mask_to_add = torch.zeros_like(attention_mask)
-        attention_mask_to_add[:, 0] = -1
-        attention_mask = attention_mask + attention_mask_to_add
-        sum_losses = torch.sum(losses * attention_mask)
-        num_examples = torch.sum(attention_mask)
-        loss = sum_losses / (num_examples + 1e-8)
+        if self.antecedent_loss == "allowed":
+            gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
+            all_log_sum_exp = torch.logsumexp(antecedent_logits, dim=-1)  # [batch_size, seq_length]
+
+            gold_log_probs = gold_log_sum_exp - all_log_sum_exp
+            losses = -gold_log_probs
+
+            loss_weights = (torch.sum(only_positive_labels, dim=-1) * (pos_weight - 1)) + 1
+            losses = losses * loss_weights
+
+            attention_mask_to_add = torch.zeros_like(attention_mask)
+            attention_mask_to_add[:, 0] = -1
+            attention_mask = attention_mask + attention_mask_to_add
+            sum_losses = torch.sum(losses * attention_mask)
+            num_examples = torch.sum(attention_mask)
+            loss = sum_losses / (num_examples + 1e-8)
+        else:  # == bce
+            weight = self.mask_antecedent_logits(torch.ones(labels.size()))
+            weight = weight * attention_mask.unsqueeze(1)
+            loss_fct = nn.BCEWithLogitsLoss(weight=weight, pos_weight=pos_weight)
+            loss = loss_fct(antecedent_logits, labels)
+
         return loss
 
     def mask_antecedent_logits(self, antecedent_logits):
