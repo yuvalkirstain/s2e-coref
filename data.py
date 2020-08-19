@@ -28,7 +28,8 @@ class CorefDataset(Dataset):
         print("Finished parsing file")
         self.max_seq_length = max_seq_length
         self.examples, self.lengths, self.num_examples_filtered = self._tokenize(examples)
-        logger.info(f"Finished preprocessing Coref dataset. {len(self.examples)} examples were processed, {self.num_examples_filtered} were filtered due to sequence length.")
+        logger.info(
+            f"Finished preprocessing Coref dataset. {len(self.examples)} examples were processed, {self.num_examples_filtered} were filtered due to sequence length.")
 
     def _parse_jsonlines(self, file_path):
         examples = []
@@ -55,7 +56,9 @@ class CorefDataset(Dataset):
         lengths = []
         num_examples_filtered = 0
         for words, clusters, speakers in examples:
-            word_idx_to_token_idx = dict()
+            word_idx_to_start_token_idx = dict()
+            word_idx_to_end_token_idx = dict()
+
             token_ids = []
             last_speaker = None
             for idx, (word, speaker) in enumerate(zip(words, speakers)):
@@ -67,16 +70,18 @@ class CorefDataset(Dataset):
                 else:
                     speaker_prefix = []
                 token_ids.extend(speaker_prefix)
-                word_idx_to_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
+                word_idx_to_start_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
                 token_ids.extend(tokenized)
+                word_idx_to_end_token_idx[idx] = len(token_ids)
 
             if self.max_seq_length > 0 and len(token_ids) > self.max_seq_length:
                 num_examples_filtered += 1
                 continue
 
-            new_clusters = [[(word_idx_to_token_idx[start], word_idx_to_token_idx[end]) for start, end in cluster] for
-                            cluster in clusters]
+            new_clusters = [
+                [(word_idx_to_start_token_idx[start], word_idx_to_end_token_idx[end]) for start, end in cluster] for
+                cluster in clusters]
             lengths.append(len(token_ids))
 
             coref_examples.append(CorefExample(token_ids=token_ids, clusters=new_clusters))

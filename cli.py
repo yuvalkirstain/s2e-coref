@@ -62,7 +62,7 @@ def parse_args():
     )
     parser.add_argument(
         "--cache_dir",
-        default="",
+        default=None,
         type=str,
         help="Where do you want to store the pre-trained models downloaded from s3",
     )
