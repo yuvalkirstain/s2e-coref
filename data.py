@@ -35,8 +35,8 @@ class CorefDataset(Dataset):
                 input_words = flatten_list_of_lists(d["sentences"])
                 clusters = d["clusters"]
                 max_mention_num = max(max_mention_num, len(flatten_list_of_lists(clusters)))
-                max_cluster_size = max(max_cluster_size, max(len(cluster) for cluster in clusters))
-                max_num_clusters = max(max_num_clusters, len(clusters))
+                max_cluster_size = max(max_cluster_size, max(len(cluster) for cluster in clusters) if clusters else 0)
+                max_num_clusters = max(max_num_clusters, len(clusters) if clusters else 0)
                 speakers = flatten_list_of_lists(d["speakers"])
                 examples.append((input_words, clusters, speakers))
         return examples, max_mention_num, max_cluster_size, max_num_clusters
