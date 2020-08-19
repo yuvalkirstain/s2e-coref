@@ -13,7 +13,6 @@ from transformers import AutoTokenizer
 OUTPUT_DIR = "output"
 eval_data_path = os.path.join(OUTPUT_DIR, EVAL_DATA_FILE_NAME)
 
-
 tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-base-4096")
 
 
@@ -54,37 +53,34 @@ def trim_mentions(mention_logits):
     candidate_mentions = [(x, y) for x, y in zip(candidates[0], candidates[1])]
     return candidate_mentions
 
+
 def trim_by_mention_then_brute_force(mention_logits, start_coref_logits, end_coref_logits):
     candidate_mentions = trim_mentions(mention_logits)
-    candidate_mentions = [(s, e) for s, e in candidate_mentions if s <= e]
+    candidate_mentions = [(s, e) for s, e in candidate_mentions if 0 < s <= e]
     return brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, candidate_mentions)
 
 
 # %%
 def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, candidate_mentions=None):
-    seq_len = len(start_coref_logits)
     mention_to_antecedent = {}
-    for start_mention_idx in range(seq_len):
-        for end_mention_idx in range(start_mention_idx, seq_len):
-            if candidate_mentions and (start_mention_idx, end_mention_idx) not in candidate_mentions:
-                continue
-            # mention_score = mention_logits[start_mention_idx, end_mention_idx]
-            max_score = -1000000
-            antecedent_ids = (NULL_ID, NULL_ID)  # null span
-            for end_antecedent_mention_idx in range(start_mention_idx):
-                for start_antecedent_mention_idx in range(end_antecedent_mention_idx + 1):
-                    if candidate_mentions and (
-                    start_antecedent_mention_idx, end_antecedent_mention_idx) not in candidate_mentions:
-                        continue
-                    # antecedent_mention_score = mention_logits[start_antecedent_mention_idx, end_antecedent_mention_idx]
-                    antecedent_start_score = start_coref_logits[start_mention_idx, start_antecedent_mention_idx]
-                    antecedent_end_score = end_coref_logits[end_mention_idx, end_antecedent_mention_idx]
-                    antecedent_coref_score = antecedent_start_score + antecedent_end_score
-                    if max_score < antecedent_coref_score and antecedent_start_score > 0 and antecedent_end_score > 0:
-                        max_score = antecedent_coref_score
-                        antecedent_ids = (start_antecedent_mention_idx, end_antecedent_mention_idx)
-            if NULL_ID not in antecedent_ids:
-                mention_to_antecedent[(start_mention_idx, end_mention_idx)] = antecedent_ids
+    mention_to_score = defaultdict(int)
+    start_mention_ids, start_antecedent_mention_ids = np.where(start_coref_logits > 0)
+    end_mention_ids, end_antecedent_mention_ids = np.where(end_coref_logits > 0)
+    for start_id, start_antecedent_id, end_id, end_antecedent_id in zip(start_mention_ids, start_antecedent_mention_ids, end_mention_ids, end_antecedent_mention_ids):
+        if (start_id, end_id) not in candidate_mentions or (start_antecedent_id, end_antecedent_id) not in candidate_mentions:
+            continue
+        antecedent_start_score = start_coref_logits[start_id, start_antecedent_id]
+        null_start_score = start_coref_logits[start_id, 0]
+        if antecedent_start_score < null_start_score:
+            continue
+        antecedent_end_score = end_coref_logits[end_id, end_antecedent_id]
+        null_end_score = end_coref_logits[end_id, 0]
+        if antecedent_end_score < null_end_score:
+            continue
+        antecedent_coref_score = antecedent_start_score + antecedent_end_score
+        if mention_to_score[(start_id, end_id)] < antecedent_coref_score:
+            mention_to_antecedent[(start_id, end_id)] = (start_antecedent_id, end_antecedent_id)
+            mention_to_score[(start_id, end_id)] = antecedent_coref_score
     return calc_clusters_predicted_by_mention_to_antecedent(mention_to_antecedent)
 
 
@@ -122,11 +118,14 @@ def extract_clusters(gold_clusters):
     gold_clusters = [cluster for cluster in gold_clusters if len(cluster) > 0]
     return gold_clusters
 
-#%%
+
+# %%
 
 for decoding_func, name in decoding_func2name.items():
     coref_evaluator = metrics.CorefEvaluator()
+    num_examples = 0
     for eval_data_point in read_examples(eval_data_path):
+        num_examples += 1
         gold_clusters = extract_clusters(eval_data_point.gold_clusters)
         mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
 
@@ -144,7 +143,9 @@ for decoding_func, name in decoding_func2name.items():
     dev_prec, dev_rec, dev_f1 = coref_evaluator.get_prf()
     # print("***** Current ckpt path is ***** : {}".format(checkpoint_path))
     print("***** EVAL ON DEV SET *****")
-    print(f"***** [DEV EVAL USING {decoding_func2name[decoding_func]}] ***** :\n"
+    print(f"function is {decoding_func2name[decoding_func]}")
+    print(f"number of examples is {num_examples}")
+    print(f"***** [DEV EVAL] ***** :\n"
           f"precision: {dev_prec:.4f}, recall: {dev_rec:.4f}, f1: {dev_f1:.4f}")
 # TODO: .logging.info
 
