@@ -10,11 +10,11 @@ from transformers import AutoTokenizer
 
 # %%
 
-OUTPUT_DIR = "output_pos"
+OUTPUT_DIR = "output"
 eval_data_path = os.path.join(OUTPUT_DIR, EVAL_DATA_FILE_NAME)
 
 
-# tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-base-4096")
+tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-base-4096")
 
 
 def find_and_remove_cluster_by_mention(mention, clusters):
@@ -46,10 +46,17 @@ def calc_clusters_predicted_by_mention_to_antecedent(mention_to_antecedent):
 
 # %%
 
+def trim_mentions(mention_logits):
+    # candidate_mentions_ravel_ids = np.argpartition(mention_logits.reshape(-1), mention_logits.shape[0] * 10)[
+    #                                -(mention_logits.shape[0] * 10):]
+    # candidate_mentions = {np.unravel_index(mention, mention_logits.shape) for mention in candidate_mentions_ravel_ids}
+    candidates = np.where(mention_logits > 0)
+    candidate_mentions = [(x, y) for x, y in zip(candidates[0], candidates[1])]
+    return candidate_mentions
+
 def trim_by_mention_then_brute_force(mention_logits, start_coref_logits, end_coref_logits):
-    candidate_mentions_ravel_ids = np.argpartition(mention_logits.reshape(-1), mention_logits.shape[0] * 10)[
-                                   -(mention_logits.shape[0] * 10):]
-    candidate_mentions = {np.unravel_index(mention, mention_logits.shape) for mention in candidate_mentions_ravel_ids}
+    candidate_mentions = trim_mentions(mention_logits)
+    candidate_mentions = [(s, e) for s, e in candidate_mentions if s <= e]
     return brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, candidate_mentions)
 
 
@@ -73,7 +80,7 @@ def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, can
                     antecedent_start_score = start_coref_logits[start_mention_idx, start_antecedent_mention_idx]
                     antecedent_end_score = end_coref_logits[end_mention_idx, end_antecedent_mention_idx]
                     antecedent_coref_score = antecedent_start_score + antecedent_end_score
-                    if max_score < antecedent_coref_score:
+                    if max_score < antecedent_coref_score and antecedent_start_score > 0 and antecedent_end_score > 0:
                         max_score = antecedent_coref_score
                         antecedent_ids = (start_antecedent_mention_idx, end_antecedent_mention_idx)
             if NULL_ID not in antecedent_ids:
