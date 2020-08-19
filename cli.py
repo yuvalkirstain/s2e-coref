@@ -66,6 +66,7 @@ def parse_args():
         type=str,
         help="Where do you want to store the pre-trained models downloaded from s3",
     )
+    parser.add_argument("--max_seq_length", default=-1, type=int)
 
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")

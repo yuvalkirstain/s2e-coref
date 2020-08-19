@@ -1,4 +1,5 @@
 import json
+import logging
 from collections import namedtuple, defaultdict
 
 import torch
@@ -16,13 +17,18 @@ SPEAKER_END = 22560  # 'Ġ###'
 PAD_ID_FOR_COREF = -1
 NULL_ID_FOR_COREF = 0
 
+logger = logging.getLogger(__name__)
+
 
 # TODO: bucketization
 class CorefDataset(Dataset):
-    def __init__(self, file_path, tokenizer):
+    def __init__(self, file_path, tokenizer, max_seq_length=-1):
         self.tokenizer = tokenizer
         examples, self.max_mention_num, self.max_cluster_size, self.max_num_clusters = self._parse_jsonlines(file_path)
-        self.examples, self.lengths = self._tokenize(examples)
+        print("Finished parsing file")
+        self.max_seq_length = max_seq_length
+        self.examples, self.lengths, self.num_examples_filtered = self._tokenize(examples)
+        logger.info(f"Finished preprocessing Coref dataset. {len(self.examples)} examples were processed, {self.num_examples_filtered} were filtered due to sequence length.")
 
     def _parse_jsonlines(self, file_path):
         examples = []
@@ -47,6 +53,7 @@ class CorefDataset(Dataset):
     def _tokenize(self, examples):
         coref_examples = []
         lengths = []
+        num_examples_filtered = 0
         for words, clusters, speakers in examples:
             word_idx_to_token_idx = dict()
             token_ids = []
@@ -64,12 +71,16 @@ class CorefDataset(Dataset):
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
                 token_ids.extend(tokenized)
 
+            if self.max_seq_length > 0 and len(token_ids) > self.max_seq_length:
+                num_examples_filtered += 1
+                continue
+
             new_clusters = [[(word_idx_to_token_idx[start], word_idx_to_token_idx[end]) for start, end in cluster] for
                             cluster in clusters]
             lengths.append(len(token_ids))
 
             coref_examples.append(CorefExample(token_ids=token_ids, clusters=new_clusters))
-        return coref_examples, lengths
+        return coref_examples, lengths, num_examples_filtered
 
     def __len__(self):
         return len(self.examples)
@@ -148,13 +159,13 @@ class CorefDataset(Dataset):
 
 def get_dataset(args, tokenizer, evaluate=False):
     file_path = args.predict_file if evaluate else args.train_file
-    return CorefDataset(file_path, tokenizer)
+    return CorefDataset(file_path, tokenizer, max_seq_length=args.max_seq_length)
 
 
 if __name__ == "__main__":
     # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-    dataset = CorefDataset(file_path="data/sample.train.english.jsonlines",
-                           tokenizer=tokenizer)
-    example = dataset[0]
-    x = 5
+    dataset = CorefDataset(file_path="data/train.english.jsonlines",
+                           tokenizer=tokenizer, max_seq_length=4500)
+    print(len(dataset))
+    print(dataset.num_examples_filtered)
