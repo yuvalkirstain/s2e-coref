@@ -131,7 +131,7 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
             num_examples = torch.sum(attention_mask)
             loss = sum_losses / (num_examples + 1e-8)
         else:  # == bce
-            weight = torch.tril(torch.ones(labels.size()))
+            weight = torch.ones_like(labels).tril()
             weight[:, 0, 0] = 1
             weight = weight * attention_mask.unsqueeze(1)
             pos_indices = labels * weight
