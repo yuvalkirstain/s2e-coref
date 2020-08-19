@@ -87,8 +87,6 @@ def main():
             "and load it from here, using --tokenizer_name"
         )
 
-    args.max_seq_length = tokenizer.max_len
-
     model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path,
                                                                config=config,
                                                                cache_dir=args.cache_dir,
