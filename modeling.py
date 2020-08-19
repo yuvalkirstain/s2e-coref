@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import Module, Linear, LayerNorm
-from transformers import BertPreTrainedModel, LongformerModel, LongformerConfig
+from transformers import BertPreTrainedModel, LongformerModel, RobertaModel
 from transformers.modeling_bert import ACT2FN
 
 
@@ -25,16 +25,17 @@ class FullyConnectedLayer(Module):
         return temp
 
 
-class LongformerForCoreferenceResolution(BertPreTrainedModel):
-    config_class = LongformerConfig
-    base_model_prefix = "longformer"
+class CoreferenceResolutionModel(BertPreTrainedModel):
 
-    def __init__(self, config, antecedent_loss):
+    def __init__(self, config, args, antecedent_loss):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
 
-        self.longformer = LongformerModel(config)
+        if args.model_type == "longformer":
+            self.encoder = LongformerModel(config)
+        elif args.model_type == "roberta":
+            self.encoder = RobertaModel(config)
 
         self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
         self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
@@ -78,13 +79,13 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
 
         return loss
 
-    def _prepare_antecedent_matrix(self, antecedent_labels, seq_length):
+    def _prepare_antecedent_matrix(self, antecedent_labels):
         """
         :param antecedent_labels: [batch_size, seq_length, cluster_size]
         :return: [batch_size, seq_length, seq_length]
         """
         device = antecedent_labels.device
-        batch_size, num_mentions, cluster_size = antecedent_labels.size()
+        batch_size, seq_length, cluster_size = antecedent_labels.size()
 
         # We now prepare a tensor with the gold antecedents for each span
         labels = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
@@ -105,7 +106,7 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
         :param attention_mask: [batch_size, seq_length]
         """
         seq_length = antecedent_logits.size(-1)
-        labels = self._prepare_antecedent_matrix(antecedent_labels, seq_length)  # [batch_size, seq_length, seq_length]
+        labels = self._prepare_antecedent_matrix(antecedent_labels)  # [batch_size, seq_length, seq_length]
         gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
 
         if self.antecedent_loss == "allowed":
@@ -151,7 +152,7 @@ class LongformerForCoreferenceResolution(BertPreTrainedModel):
 
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, return_all_outputs=False):
-        outputs = self.longformer(input_ids, attention_mask=attention_mask)
+        outputs = self.encoder(input_ids, attention_mask=attention_mask)
         sequence_output = outputs[0]
 
         # Compute representations

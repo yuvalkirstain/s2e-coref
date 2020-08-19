@@ -8,9 +8,9 @@ import shutil
 
 import torch
 
-from transformers import AutoConfig, AutoTokenizer, CONFIG_MAPPING
+from transformers import AutoConfig, AutoTokenizer, CONFIG_MAPPING, LongformerConfig, RobertaConfig
 
-from modeling import LongformerForCoreferenceResolution
+from modeling import CoreferenceResolutionModel
 from data import get_dataset
 from cli import parse_args
 from training import train, set_seed
@@ -22,17 +22,20 @@ logger = logging.getLogger(__name__)
 def main():
     args = parse_args()
 
-    assert args.model_type == "longformer"
-    assert "longformer" in args.model_name_or_path.lower()
+    assert args.model_type in ["longformer", "roberta"]
+    assert "longformer" in args.model_name_or_path.lower() or "roberta" in args.model_name_or_path.lower()
     assert "roberta" in args.tokenizer_name or "longformer" in args.tokenizer_name
 
     if args.predict_file is None and args.do_eval:
-        raise ValueError("Cannot do evaluation without an evaluation data file. Either supply a file to --eval_data_file "
-                         "or remove the --do_eval argument.")
+        raise ValueError(
+            "Cannot do evaluation without an evaluation data file. Either supply a file to --eval_data_file "
+            "or remove the --do_eval argument.")
 
     if args.output_dir and os.path.exists(args.output_dir) and \
             os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
-        raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
+        raise ValueError(
+            "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+                args.output_dir))
 
     if args.overwrite_output_dir and os.path.isdir(args.output_dir):
         shutil.rmtree(args.output_dir)
@@ -59,7 +62,7 @@ def main():
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
     logger.info("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-                   args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.fp16)
+                args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.fp16)
 
     # Set seed
     set_seed(args)
@@ -87,11 +90,21 @@ def main():
             "and load it from here, using --tokenizer_name"
         )
 
-    model = LongformerForCoreferenceResolution.from_pretrained(args.model_name_or_path,
-                                                               config=config,
-                                                               cache_dir=args.cache_dir,
-                                                               antecedent_loss=args.antecedent_loss)
-    model.resize_token_embeddings(len(tokenizer))
+    if args.model_type == "longformer":
+        config_class = LongformerConfig
+        base_model_prefix = "longformer"
+    else:
+        config_class = RobertaConfig
+        base_model_prefix = "roberta"
+
+    CoreferenceResolutionModel.config_class = config_class
+    CoreferenceResolutionModel.base_model_prefix = base_model_prefix
+    model = CoreferenceResolutionModel.from_pretrained(args.model_name_or_path,
+                                                       config=config,
+                                                       cache_dir=args.cache_dir,
+                                                       antecedent_loss=args.antecedent_loss,
+                                                       args=args)
+    # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)
 
     if args.local_rank == 0:
@@ -121,7 +134,8 @@ def main():
         logger.info("Saving model checkpoint to %s", args.output_dir)
         # Save a trained model, configuration and tokenizer using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
-        model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
+        model_to_save = model.module if hasattr(model,
+                                                'module') else model  # Take care of distributed/parallel training
         model_to_save.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)
 
