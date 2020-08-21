@@ -73,7 +73,7 @@ class CorefDataset(Dataset):
                 word_idx_to_start_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
                 token_ids.extend(tokenized)
-                word_idx_to_end_token_idx[idx] = len(token_ids)
+                word_idx_to_end_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
 
             if self.max_seq_length > 0 and len(token_ids) > self.max_seq_length:
                 num_examples_filtered += 1
@@ -135,6 +135,7 @@ class CorefDataset(Dataset):
         return clusters + [[]] * (self.max_num_clusters - len(clusters))
 
     def pad_batch(self, batch, max_length):
+        max_length += 2  # we have additional two special tokens <s>, </s>
         padded_batch = []
         for example in batch:
             encoded_dict = self.tokenizer.encode_plus(example[0],
