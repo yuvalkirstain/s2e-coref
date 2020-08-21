@@ -120,7 +120,18 @@ def main():
 
     # Training
     if args.do_train:
-        train_dataset = get_dataset(args, tokenizer=tokenizer) if args.do_train else None
+        if args.overwrite_datasets or not os.path.exists(os.path.join(args.dataset_output_dir, "train_dataset.pkl")):
+            if args.overwrite_datasets and os.path.isdir(args.dataset_output_dir):
+                shutil.rmtree(args.dataset_output_dir)
+                os.mkdir(args.dataset_output_dir)
+            logger.info(f"Writing train dataset to {os.path.realpath(os.path.join(args.dataset_output_dir, 'train_dataset.pkl'))}")
+            train_dataset = get_dataset(args, tokenizer=tokenizer) if args.do_train else None
+            with open(os.path.join(args.dataset_output_dir, "train_dataset.pkl"), "wb") as f:
+                pickle.dump(train_dataset, f)
+        logger.info(f"Reading train dataset from {os.path.realpath(os.path.join(args.dataset_output_dir, 'train_dataset.pkl'))}")
+        with open(os.path.join(args.dataset_output_dir, "train_dataset.pkl"), "rb") as f:
+            train_dataset = pickle.load(f)
+
         global_step, tr_loss = train(args, train_dataset, model, tokenizer, evaluator)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 

@@ -29,6 +29,14 @@ def parse_args():
         help="The output directory where the model checkpoints and predictions will be written.",
     )
 
+    parser.add_argument(
+        "--dataset_output_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="The output directory where the datasets will be written.",
+    )
+
     # Other parameters
     parser.add_argument(
         "--data_dir",
@@ -52,11 +60,11 @@ def parse_args():
              + "If no data dir or train/predict files are specified, will run with tensorflow_datasets.",
     )
     parser.add_argument(
-        "--config_name", default="allenai/longformer-base-4096", type=str, help="Pretrained config name or path if not the same as model_name"
+        "--config_name", default=None, type=str, help="Pretrained config name or path if not the same as model_name"
     )
     parser.add_argument(
         "--tokenizer_name",
-        default="allenai/longformer-base-4096",
+        default=None,
         type=str,
         help="Pretrained tokenizer name or path if not the same as model_name",
     )
@@ -117,6 +125,9 @@ def parse_args():
     parser.add_argument("--no_cuda", action="store_true", help="Whether not to use CUDA when available")
     parser.add_argument(
         "--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory"
+    )
+    parser.add_argument(
+        "--overwrite_datasets", action="store_true", help="Overwrite the content of the datasets saved"
     )
     parser.add_argument(
         "--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets"

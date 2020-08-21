@@ -1,7 +1,7 @@
 import os
 import logging
 from collections import namedtuple
-
+import pickle
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -20,7 +20,15 @@ class Evaluator:
         self.tokenizer = tokenizer
 
     def evaluate(self, model, prefix=""):
-        eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
+        if self.args.overwrite_datasets or not os.path.exists(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl")):
+            logger.info(f"Writing eval dataset to {os.path.realpath(os.path.join(self.args.dataset_output_dir, 'eval_dataset.pkl'))}")
+            eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
+            with open(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl"), "wb") as f:
+                pickle.dump(eval_dataset, f)
+        logger.info(f"Reading eval dataset from {os.path.realpath(os.path.join(self.args.dataset_output_dir, 'eval_dataset.pkl'))}")
+        with open(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl"), "rb") as f:
+            eval_dataset = pickle.load(f)
+
 
         if self.eval_output_dir and not os.path.exists(self.eval_output_dir) and self.args.local_rank in [-1, 0]:
             os.makedirs(self.eval_output_dir)
@@ -32,6 +40,7 @@ class Evaluator:
         # Eval!
         logger.info("***** Running evaluation {} *****".format(prefix))
         logger.info("  Batch size = %d", self.eval_batch_size)
+        logger.info("  Examples number: %d", len(eval_dataset))
         model.eval()
 
         with open(os.path.join(self.eval_output_dir, EVAL_DATA_FILE_NAME), "wb") as f:
