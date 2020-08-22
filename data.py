@@ -78,7 +78,10 @@ class CorefDataset(Dataset):
             if self.max_seq_length > 0 and len(token_ids) > self.max_seq_length:
                 num_examples_filtered += 1
                 continue
-
+            # bad_ids = [49518, 111, 22560, 3465, 1489, 692, 25586, 12417, 8,
+            #            5791, 1489, 692, 23470, 12342, 33, 11908, 307, 128]
+            # if not set(bad_ids).issubset(set(token_ids)):
+            #     continue
             new_clusters = [
                 [(word_idx_to_start_token_idx[start], word_idx_to_end_token_idx[end]) for start, end in cluster] for
                 cluster in clusters]

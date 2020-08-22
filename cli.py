@@ -62,18 +62,14 @@ def parse_args():
     parser.add_argument(
         "--config_name", default=None, type=str, help="Pretrained config name or path if not the same as model_name"
     )
-    parser.add_argument(
-        "--tokenizer_name",
-        default=None,
-        type=str,
-        help="Pretrained tokenizer name or path if not the same as model_name",
-    )
-    parser.add_argument(
-        "--cache_dir",
-        default=None,
-        type=str,
-        help="Where do you want to store the pre-trained models downloaded from s3",
-    )
+    parser.add_argument("--tokenizer_name",
+                        default=None,
+                        type=str,
+                        help="Pretrained tokenizer name or path if not the same as model_name")
+    parser.add_argument("--cache_dir",
+                        default=None,
+                        type=str,
+                        help="Where do you want to store the pre-trained models downloaded from s3")
     parser.add_argument("--max_seq_length", default=-1, type=int)
 
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
@@ -81,9 +77,7 @@ def parse_args():
     # parser.add_argument(
     #    "--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step."
     # )
-    parser.add_argument(
-        "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
-    )
+    parser.add_argument("--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model.")
 
     parser.add_argument("--nonfreeze_params", default=None, type=str,
                         help="named parameters to update while training (separated by ,). The rest will kept frozen. If None or empty - train all")
@@ -93,31 +87,25 @@ def parse_args():
         "--per_gpu_eval_batch_size", default=8, type=int, help="Batch size per GPU/CPU for evaluation."
     )
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
-    parser.add_argument(
-        "--gradient_accumulation_steps",
-        type=int,
-        default=1,
-        help="Number of updates steps to accumulate before performing a backward/update pass.",
-    )
+    parser.add_argument("--gradient_accumulation_steps",
+                        type=int,
+                        default=1,
+                        help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument(
         "--num_train_epochs", default=3.0, type=float, help="Total number of training epochs to perform."
     )
-    parser.add_argument(
-        "--max_steps",
-        default=-1,
-        type=int,
-        help="If > 0: set total number of training steps to perform. Override num_train_epochs.",
-    )
+    parser.add_argument("--max_steps",
+                        default=-1,
+                        type=int,
+                        help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
-    parser.add_argument(
-        "--verbose_logging",
-        action="store_true",
-        help="If true, all of the warnings related to data processing will be printed. "
-             "A number of warnings are expected for a normal SQuAD evaluation.",
-    )
+    parser.add_argument("--verbose_logging",
+                        action="store_true",
+                        help="If true, all of the warnings related to data processing will be printed. "
+                             "A number of warnings are expected for a normal SQuAD evaluation.")
 
     parser.add_argument("--logging_steps", type=int, default=500, help="Log every X updates steps.")
     parser.add_argument("--eval_steps", type=int, default=5000, help="Eval every X updates steps.")

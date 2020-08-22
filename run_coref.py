@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 def main():
     args = parse_args()
-
-    assert args.model_type in ["longformer", "roberta"]
-    assert "longformer" in args.model_name_or_path.lower() or "roberta" in args.model_name_or_path.lower()
-    assert "roberta" in args.tokenizer_name or "longformer" in args.tokenizer_name
+    allowed_names = ["longformer", "roberta", "checkpoint"]
+    assert args.model_type in allowed_names
+    assert any(name in args.model_name_or_path.lower() for name in allowed_names)
+    assert any(name in args.tokenizer_name for name in allowed_names)
 
     if args.predict_file is None and args.do_eval:
         raise ValueError(

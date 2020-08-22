@@ -132,12 +132,22 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                             end_antecedent_labels=end_antecedents_indices,
                             return_all_outputs=False)
 
+
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
+            entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
+
+            if loss > 1000:
+                logger.info(f"\nloss: {loss}, "
+                            f"entity_mention_loss: {entity_mention_loss}, "
+                            f"start_coref_loss: {start_coref_loss},"
+                            f"end_coref_loss: {end_coref_loss}")
+                for example_input_ids in input_ids:
+                    logger.info(example_input_ids[:20])
 
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -158,7 +168,11 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
-                    logger.info(f"loss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
+                    logger.info(f"\nloss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
+                    logger.info(f"entity_mention_loss step {global_step}: {entity_mention_loss}")
+                    logger.info(f"start_coref_loss step {global_step}: {start_coref_loss}")
+                    logger.info(f"end_coref_loss step {global_step}: {end_coref_loss}")
+
                     logging_loss = tr_loss
 
                 if args.local_rank in [-1, 0] and args.eval_steps > 0 and global_step % args.eval_steps == 0:

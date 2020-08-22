@@ -9,3 +9,4 @@ run_squad.py
 output_pos
 output
 /dataset/
+/checkpoint-*/
