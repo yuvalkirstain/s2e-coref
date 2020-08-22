@@ -139,13 +139,13 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             pos_num = torch.sum(pos_indices)
             neg_indices = (1 - labels) * weight
             neg_num = torch.sum(neg_indices)
-            loss_fct = nn.BCEWithLogitsLoss(weight=weight, pos_weight=neg_num / pos_num)
-            loss = loss_fct(antecedent_logits, labels)
-
+            loss_fct = nn.BCEWithLogitsLoss(weight=weight, pos_weight=neg_num / pos_num, reduction='none')
+            all_loss = loss_fct(antecedent_logits, labels)
+            loss = all_loss.mean()
         return loss
 
     def mask_antecedent_logits(self, antecedent_logits):
-        antecedents_mask = torch.ones_like(antecedent_logits).triu() * (-1e8)  # [batch_size, seq_length, seq_length]
+        antecedents_mask = torch.ones_like(antecedent_logits).triu(diagonal=1) * (-1e8)  # [batch_size, seq_length, seq_length]
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
@@ -201,6 +201,6 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                                                            antecedent_logits=end_coref_logits,
                                                            attention_mask=attention_mask)
             loss = entity_mention_loss + start_coref_loss + end_coref_loss
-            outputs = (loss,) + outputs
+            outputs = (loss,) + outputs + (entity_mention_loss, start_coref_loss, end_coref_loss)
 
         return outputs
