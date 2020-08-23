@@ -114,9 +114,6 @@ def main():
 
     # First evaluation:
     evaluator = Evaluator(args, tokenizer)
-    if args.do_eval and args.local_rank in [-1, 0]:
-        evaluator.evaluate(model, prefix="before_training")
-
     # Training
     if args.do_train:
         train_dataset = get_dataset(args, tokenizer, evaluate=False)
