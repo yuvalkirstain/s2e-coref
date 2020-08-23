@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 class CorefDataset(Dataset):
     def __init__(self, file_path, tokenizer, max_seq_length=-1):
         self.tokenizer = tokenizer
+        logger.info(f"Reading dataset from {file_path}")
         examples, self.max_mention_num, self.max_cluster_size, self.max_num_clusters = self._parse_jsonlines(file_path)
-        print("Finished parsing file")
         self.max_seq_length = max_seq_length
         self.examples, self.lengths, self.num_examples_filtered = self._tokenize(examples)
         logger.info(
-            f"Finished preprocessing Coref dataset. {len(self.examples)} examples were processed, {self.num_examples_filtered} were filtered due to sequence length.")
+            f"Finished preprocessing Coref dataset. {len(self.examples)} examples were extracted, {self.num_examples_filtered} were filtered due to sequence length.")
 
     def _parse_jsonlines(self, file_path):
         examples = []
