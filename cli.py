@@ -28,23 +28,22 @@ def parse_args():
         required=True,
         help="The output directory where the model checkpoints and predictions will be written.",
     )
-
     parser.add_argument(
-        "--dataset_output_dir",
+        "--train_file_cache",
         default=None,
         type=str,
         required=True,
-        help="The output directory where the datasets will be written.",
+        help="The output directory where the datasets will be written and read from.",
+    )
+    parser.add_argument(
+        "--predict_file_cache",
+        default=None,
+        type=str,
+        required=True,
+        help="The output directory where the datasets will be written and read from.",
     )
 
     # Other parameters
-    parser.add_argument(
-        "--data_dir",
-        default=None,
-        type=str,
-        help="The input data dir. Should contain the .json files for the task."
-             + "If no data dir or train/predict files are specified, will run with tensorflow_datasets.",
-    )
     parser.add_argument(
         "--train_file",
         default=None,

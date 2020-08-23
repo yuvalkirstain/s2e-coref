@@ -20,15 +20,7 @@ class Evaluator:
         self.tokenizer = tokenizer
 
     def evaluate(self, model, prefix=""):
-        if self.args.overwrite_datasets or not os.path.exists(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl")):
-            logger.info(f"Writing eval dataset to {os.path.realpath(os.path.join(self.args.dataset_output_dir, 'eval_dataset.pkl'))}")
-            eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
-            with open(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl"), "wb") as f:
-                pickle.dump(eval_dataset, f)
-        logger.info(f"Reading eval dataset from {os.path.realpath(os.path.join(self.args.dataset_output_dir, 'eval_dataset.pkl'))}")
-        with open(os.path.join(self.args.dataset_output_dir, "eval_dataset.pkl"), "rb") as f:
-            eval_dataset = pickle.load(f)
-
+        eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
 
         if self.eval_output_dir and not os.path.exists(self.eval_output_dir) and self.args.local_rank in [-1, 0]:
             os.makedirs(self.eval_output_dir)

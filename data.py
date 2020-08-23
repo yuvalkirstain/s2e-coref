@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import pickle
 from collections import namedtuple, defaultdict
 
 import torch
@@ -167,8 +169,26 @@ class CorefDataset(Dataset):
 
 
 def get_dataset(args, tokenizer, evaluate=False):
-    file_path = args.predict_file if evaluate else args.train_file
-    return CorefDataset(file_path, tokenizer, max_seq_length=args.max_seq_length)
+    read_from_cache, file_path = False, ''
+    if evaluate and os.path.exists(args.predict_file_cache):
+        file_path = args.predict_file_cache
+        read_from_cache = True
+    elif (not evaluate) and os.path.exists(args.train_file_cache):
+        file_path = args.train_file_cache
+        read_from_cache = True
+
+    if read_from_cache:
+        logger.info(f"Reading dataset from {file_path}")
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+
+    file_path, cache_path = (args.predict_file, args.predict_file_cache) if evaluate else (args.train_file, args.train_file_cache)
+
+    coref_dataset = CorefDataset(file_path, tokenizer, max_seq_length=args.max_seq_length)
+    with open(cache_path, 'wb') as f:
+        pickle.dump(coref_dataset, f)
+
+    return coref_dataset
 
 
 if __name__ == "__main__":
