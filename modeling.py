@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import Module, Linear, LayerNorm
-from transformers import BertPreTrainedModel, LongformerModel, RobertaModel
+from transformers import BertPreTrainedModel, LongformerModel, RobertaModel, RobertaConfig
 from transformers.modeling_bert import ACT2FN
 
 
@@ -26,16 +26,16 @@ class FullyConnectedLayer(Module):
 
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
-
     def __init__(self, config, args, antecedent_loss):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
+        self.args = args
 
         if args.model_type == "longformer":
-            self.encoder = LongformerModel(config)
+            self.longformer = LongformerModel(config)
         elif args.model_type == "roberta":
-            self.encoder = RobertaModel(config)
+            self.roberta = RobertaModel(config)
 
         self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
         self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
@@ -150,9 +150,18 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
 
+    def _get_encoder(self):
+        if self.args.model_type == "longformer":
+            return self.longformer
+        elif self.args.model_type == "roberta":
+            return self.roberta
+
+        raise ValueError("Unsupported model type")
+
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, return_all_outputs=False):
-        outputs = self.encoder(input_ids, attention_mask=attention_mask)
+        encoder = self._get_encoder()
+        outputs = encoder(input_ids, attention_mask=attention_mask)
         sequence_output = outputs[0]
 
         # Compute representations
