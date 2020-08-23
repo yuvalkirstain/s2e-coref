@@ -69,7 +69,7 @@ class CorefDataset(Dataset):
                     last_speaker = speaker
                 else:
                     speaker_prefix = []
-                               token_ids.extend(speaker_prefix)
+                    token_ids.extend(speaker_prefix)
                 word_idx_to_start_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
                 token_ids.extend(tokenized)
