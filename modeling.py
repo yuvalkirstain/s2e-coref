@@ -64,19 +64,25 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         num_mentions = start_entity_mention_labels.size(-1)
 
         # We now take the index tensors and turn them into sparse tensors
-        full_entity_mentions = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
+        labels = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
         batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
-        full_entity_mentions[
+        labels[
             batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
-        full_entity_mentions[:, 0, 0] = 0.0  # Remove the padded mentions
+        labels[:, 0, 0] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
 
-        num_positive_labels = torch.sum(full_entity_mentions)
-        num_negative_labels = torch.sum(1 - full_entity_mentions) - torch.sum(1 - weights)
-        loss_fct = nn.BCEWithLogitsLoss(weight=weights, pos_weight=num_negative_labels / num_positive_labels)
-        loss = loss_fct(mention_logits, full_entity_mentions)
+        pos_weights = weights * labels
+        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_pos_loss = per_example_pos_loss_fct(mention_logits, labels)
+        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum())
 
+        neg_weights = weights * (1 - labels)
+        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_neg_loss = per_example_neg_loss_fct(mention_logits, labels)
+        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum())
+
+        loss = neg_loss + pos_loss
         return loss
 
     def _prepare_antecedent_matrix(self, antecedent_labels):
