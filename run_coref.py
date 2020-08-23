@@ -24,7 +24,6 @@ def main():
     allowed_names = ["longformer", "roberta", "checkpoint"]
     assert args.model_type in allowed_names
     assert any(name in args.model_name_or_path.lower() for name in allowed_names)
-    assert any(name in args.tokenizer_name for name in allowed_names)
 
     if args.predict_file is None and args.do_eval:
         raise ValueError(
