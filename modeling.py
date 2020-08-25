@@ -144,8 +144,20 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         else:  # == bce
             weights = torch.ones_like(labels).tril()
             weights[:, 0, 0] = 1
-            weights = weights * attention_mask.unsqueeze(1)
-            loss = self._compute_pos_neg_loss(weights, labels, antecedent_logits)
+            attention_mask = attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2)
+            weights = weights * attention_mask
+
+            # Compute pos-neg loss for all non-null antecedents
+            non_null_weights = weights.clone()
+            non_null_weights[:, :, 0] = 0
+            non_null_loss = self._compute_pos_neg_loss(non_null_weights, labels, antecedent_logits)
+
+            # Compute pos-neg loss for all null antecedents
+            null_weights = weights.clone()
+            null_weights[:, :, 1:] = 0
+            null_loss = self._compute_pos_neg_loss(null_weights, labels, antecedent_logits)
+
+            loss = null_loss + non_null_loss
 
         return loss
 
