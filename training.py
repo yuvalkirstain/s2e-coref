@@ -182,11 +182,8 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
                     logging_loss = tr_loss
 
-                if args.local_rank in [-1, 0] and args.eval_steps > 0 and global_step % args.eval_steps == 0:
-                    # Log metrics
-                    if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluator.evaluate(model, prefix=f'step_{global_step}')
-                    logging_loss = tr_loss
+                if args.local_rank in [-1, 0] and args.do_eval and args.eval_steps > 0 and global_step % args.eval_steps == 0:
+                    results = evaluator.evaluate(model, prefix=f'step_{global_step}')
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
