@@ -10,3 +10,4 @@ output_pos
 output
 /dataset/
 /checkpoint-*/
+one-epoch
