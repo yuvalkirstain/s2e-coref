@@ -26,10 +26,11 @@ class FullyConnectedLayer(Module):
 
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
-    def __init__(self, config, args, antecedent_loss):
+    def __init__(self, config, args, antecedent_loss, max_span_length):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
+        self.max_span_length = max_span_length
         self.args = args
 
         if args.model_type == "longformer":
@@ -71,6 +72,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         labels[:, 0, 0] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
+        weights = self.mask_mention_logits(weights)
 
         loss = self._compute_pos_neg_loss(weights, labels, mention_logits)
         return loss
@@ -167,6 +169,14 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
 
+
+    def mask_mention_logits(self, mention_logits):
+        mention_mask = torch.ones_like(mention_logits)
+        mention_mask = mention_mask.triu(diagonal=0)
+        mention_mask = mention_mask.tril(diagonal=self.max_span_length)
+        return mention_mask * mention_logits
+
+
     def _get_encoder(self):
         if self.args.model_type == "longformer":
             return self.longformer
@@ -198,6 +208,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                                             end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
 
         mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
+        mention_logits = self.mask_mention_logits(mention_logits)
 
         # Antecedent scores
         temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, seq_length, dim]
