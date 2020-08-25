@@ -75,12 +75,12 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         pos_weights = weights * labels
         per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
         per_example_pos_loss = per_example_pos_loss_fct(mention_logits, labels)
-        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum())
+        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-8)
 
         neg_weights = weights * (1 - labels)
         per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
         per_example_neg_loss = per_example_neg_loss_fct(mention_logits, labels)
-        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum())
+        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-8)
 
         loss = neg_loss + pos_loss
         return loss

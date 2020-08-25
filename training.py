@@ -14,6 +14,10 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 logger = logging.getLogger(__name__)
 
 
+def log_batch_eval_results(outputs):
+    pass
+
+
 def train(args, train_dataset, model, tokenizer, evaluator):
     """ Train the model """
     # if args.local_rank in [-1, 0]:
@@ -141,11 +145,14 @@ def train(args, train_dataset, model, tokenizer, evaluator):
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            if loss > 1000:
+            if loss > 1000 or str(loss.item()) == 'nan':
                 logger.info(f"\nloss: {loss}, "
                             f"entity_mention_loss: {entity_mention_loss}, "
                             f"start_coref_loss: {start_coref_loss},"
                             f"end_coref_loss: {end_coref_loss}")
+                for example_input_ids in input_ids:
+                    logger.info(tokenizer.convert_ids_to_tokens(example_input_ids)[:20])
+                log_batch_eval_results(outputs)
                 for example_input_ids in input_ids:
                     logger.info(example_input_ids[:20])
 
