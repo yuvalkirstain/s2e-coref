@@ -24,6 +24,9 @@ def main():
     allowed_names = ["longformer", "roberta"]
     assert args.model_type in allowed_names
 
+    transformers_logger = logging.getLogger("transformers")
+    transformers_logger.setLevel(logging.ERROR)
+
     if args.predict_file is None and args.do_eval:
         raise ValueError(
             "Cannot do evaluation without an evaluation data file. Either supply a file to --eval_data_file "
