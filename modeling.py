@@ -72,7 +72,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         labels[:, 0, 0] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
-        weights = self.mask_mention_weights(weights)
+        mention_mask = self._get_mention_mask(weights)
+        weights = weights * mention_mask
 
         loss = self._compute_pos_neg_loss(weights, labels, mention_logits)
         return loss
@@ -169,18 +170,16 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
 
-
-    def mask_mention_logits(self, mention_logits):
-        mention_mask = torch.ones_like(mention_logits)
+    def _get_mention_mask(self, mention_logits_or_weights):
+        """
+        Returns a tensor of size [batch_size, seq_length, seq_length] where valid spans
+        (start <= end < start + max_span_length) are 1 and the rest are 0
+        :param mention_logits_or_weights: Either the span mention logits or weights, size [batch_size, seq_length, seq_length]
+        """
+        mention_mask = torch.ones_like(mention_logits_or_weights)
         mention_mask = mention_mask.triu(diagonal=0)
-        mention_mask = mention_mask.tril(diagonal=self.max_span_length)
-        return mention_logits + (1 - mention_mask) * (-1e8)
-
-    def mask_mention_weights(self, mention_weights):
-        mention_mask = torch.ones_like(mention_weights)
-        mention_mask = mention_mask.triu(diagonal=0)
-        mention_mask = mention_mask.tril(diagonal=self.max_span_length)
-        return mention_mask * mention_weights
+        mention_mask = mention_mask.tril(diagonal=self.max_span_length-1)
+        return mention_mask
 
     def _get_encoder(self):
         if self.args.model_type == "longformer":
@@ -213,7 +212,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                                             end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
 
         mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
-        mention_logits = self.mask_mention_logits(mention_logits)
+        mention_mask = self._get_mention_mask(mention_logits)
+        mention_logits = mention_logits + (1 - mention_mask) * -1e8
 
         # Antecedent scores
         temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, seq_length, dim]
