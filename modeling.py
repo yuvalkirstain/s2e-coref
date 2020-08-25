@@ -72,7 +72,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         labels[:, 0, 0] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
-        weights = self.mask_mention_logits(weights)
+        weights = self.mask_mention_weights(weights)
 
         loss = self._compute_pos_neg_loss(weights, labels, mention_logits)
         return loss
@@ -174,8 +174,13 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         mention_mask = torch.ones_like(mention_logits)
         mention_mask = mention_mask.triu(diagonal=0)
         mention_mask = mention_mask.tril(diagonal=self.max_span_length)
-        return mention_mask * mention_logits
+        return mention_logits + (1 - mention_mask) * (-1e8)
 
+    def mask_mention_weights(self, mention_weights):
+        mention_mask = torch.ones_like(mention_weights)
+        mention_mask = mention_mask.triu(diagonal=0)
+        mention_mask = mention_mask.tril(diagonal=self.max_span_length)
+        return mention_mask * mention_weights
 
     def _get_encoder(self):
         if self.args.model_type == "longformer":
