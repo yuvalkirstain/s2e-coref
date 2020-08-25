@@ -72,17 +72,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
 
-        pos_weights = weights * labels
-        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_pos_loss = per_example_pos_loss_fct(mention_logits, labels)
-        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-8)
-
-        neg_weights = weights * (1 - labels)
-        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_neg_loss = per_example_neg_loss_fct(mention_logits, labels)
-        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-8)
-
-        loss = neg_loss + pos_loss
+        loss = self._compute_pos_neg_loss(weights, labels, mention_logits)
         return loss
 
     def _prepare_antecedent_matrix(self, antecedent_labels):
@@ -104,6 +94,20 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         labels[:, :, -1] = 0.0  # Fix all pad-antecedents
 
         return labels
+
+    def _compute_pos_neg_loss(self, weights, labels, logits):
+        pos_weights = weights * labels
+        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_pos_loss = per_example_pos_loss_fct(logits, labels)
+        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-8)
+
+        neg_weights = weights * (1 - labels)
+        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
+        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-8)
+
+        loss = neg_loss + pos_loss
+        return loss
 
     def _compute_antecedent_loss(self, antecedent_labels, antecedent_logits, attention_mask=None):
         """
@@ -138,16 +142,11 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             num_examples = torch.sum(attention_mask)
             loss = sum_losses / (num_examples + 1e-8)
         else:  # == bce
-            weight = torch.ones_like(labels).tril()
-            weight[:, 0, 0] = 1
-            weight = weight * attention_mask.unsqueeze(1)
-            pos_indices = labels * weight
-            pos_num = torch.sum(pos_indices)
-            neg_indices = (1 - labels) * weight
-            neg_num = torch.sum(neg_indices)
-            loss_fct = nn.BCEWithLogitsLoss(weight=weight, pos_weight=neg_num / pos_num, reduction='none')
-            all_loss = loss_fct(antecedent_logits, labels)
-            loss = all_loss.mean()
+            weights = torch.ones_like(labels).tril()
+            weights[:, 0, 0] = 1
+            weights = weights * attention_mask.unsqueeze(1)
+            loss = self._compute_pos_neg_loss(weights, labels, antecedent_logits)
+
         return loss
 
     def mask_antecedent_logits(self, antecedent_logits):

@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 def main():
     args = parse_args()
-    allowed_names = ["longformer", "roberta", "checkpoint"]
+    allowed_names = ["longformer", "roberta"]
     assert args.model_type in allowed_names
-    assert any(name in args.model_name_or_path.lower() for name in allowed_names)
 
     if args.predict_file is None and args.do_eval:
         raise ValueError(
