@@ -1,5 +1,6 @@
 import os
 import logging
+import random
 from collections import namedtuple
 import pickle
 import numpy as np
@@ -17,11 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class Evaluator:
-    def __init__(self, args, tokenizer):
+    def __init__(self, args, tokenizer, sampling_prob=1.0):
         self.args = args
         self.eval_output_dir = args.output_dir
         self.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
         self.tokenizer = tokenizer
+        self.sampling_prob = sampling_prob
 
     def evaluate(self, model, prefix=""):
         eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
@@ -42,6 +44,9 @@ class Evaluator:
         mention_evaluator = MentionEvaluator()
         coref_evaluator = CorefEvaluator()
         for batch in eval_dataloader:
+            if random.random() > self.sampling_prob:
+                continue
+
             # batch = tuple(tensor.to(self.args.device) for tensor in batch)
             input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
             input_ids = input_ids.to(self.args.device)
