@@ -75,9 +75,9 @@ class Evaluator:
         logger.info(f"precision: {prec:.4f}, recall: {rec:.4f}, f1: {f1:.4f}")
 
         results = [
-            ("mention_precision", mention_precision),
-            ("mentions_recall", mentions_recall),
-            ("mention_f1", mention_f1),
+            ("mention precision", mention_precision),
+            ("mention recall", mentions_recall),
+            ("mention f1", mention_f1),
             ("precision", prec),
             ("recall", rec),
             ("f1", f1)
