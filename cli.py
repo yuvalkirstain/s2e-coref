@@ -138,7 +138,7 @@ def parse_args():
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
 
     parser.add_argument("--antecedent_loss", type=str, required=True, choices=["bce", "allowed"])
-    parser.add_argument("--max_span_length", type=int, required=False, default=20)
+    parser.add_argument("--max_span_length", type=int, required=False, default=32)
 
     args = parser.parse_args()
 
