@@ -105,6 +105,7 @@ def main():
                                                        cache_dir=args.cache_dir,
                                                        antecedent_loss=args.antecedent_loss,
                                                        max_span_length=args.max_span_length,
+                                                       seperate_mention_loss=args.seperate_mention_loss,
                                                        args=args)
     # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)

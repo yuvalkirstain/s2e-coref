@@ -139,6 +139,7 @@ def parse_args():
 
     parser.add_argument("--antecedent_loss", type=str, required=True, choices=["bce", "allowed"])
     parser.add_argument("--max_span_length", type=int, required=False, default=32)
+    parser.add_argument("--seperate_mention_loss", type=bool, required=False, default=True)
 
     args = parser.parse_args()
 
