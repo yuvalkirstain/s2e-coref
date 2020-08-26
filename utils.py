@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 # from scipy.optimize import linear_sum_assignment
 NULL_ID = 0
+NULL_ID_FOR_COREF = 0
 EVAL_DATA_FILE_NAME = "eval_data_111.jsonl"
 EvalDataPoint = namedtuple("EvalDataPoint", ["input_ids",
                                              "attention_mask",
@@ -34,3 +35,18 @@ def read_examples(path):
 
 def flatten_list_of_lists(lst):
     return [elem for sublst in lst for elem in sublst]
+
+
+def extract_clusters(gold_clusters):
+    gold_clusters = [tuple(tuple(m) for m in gc if NULL_ID_FOR_COREF not in m) for gc in gold_clusters.tolist()]
+    gold_clusters = [cluster for cluster in gold_clusters if len(cluster) > 0]
+    return gold_clusters
+
+def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
+    mention_to_gold = {}
+    for gc in gold_clusters:
+        for mention in gc:
+            mention_to_gold[tuple(mention)] = gc
+    return mention_to_gold
+
+

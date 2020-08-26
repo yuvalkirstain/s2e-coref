@@ -8,7 +8,11 @@ from torch.utils.data import DataLoader
 from torch import nn
 from coref_bucket_batch_sampler import BucketBatchSampler
 from data import get_dataset
-from utils import write_examples, EVAL_DATA_FILE_NAME
+from decoding import cluster_mentions
+from metrics import CorefEvaluator, MentionEvaluator
+from utils import write_examples, EVAL_DATA_FILE_NAME, EvalDataPoint, extract_clusters, \
+    extract_mentions_to_predicted_clusters_from_clusters
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,20 +39,49 @@ class Evaluator:
         logger.info("  Examples number: %d", len(eval_dataset))
         model.eval()
 
-        with open(os.path.join(self.eval_output_dir, EVAL_DATA_FILE_NAME), "wb") as f:
-            for batch in eval_dataloader:
-                # batch = tuple(tensor.to(self.args.device) for tensor in batch)
-                input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
-                input_ids = input_ids.to(self.args.device)
-                attention_mask = attention_mask.to(self.args.device)
+        mention_evaluator = MentionEvaluator()
+        coref_evaluator = CorefEvaluator()
+        for batch in eval_dataloader:
+            # batch = tuple(tensor.to(self.args.device) for tensor in batch)
+            input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
+            input_ids = input_ids.to(self.args.device)
+            attention_mask = attention_mask.to(self.args.device)
 
-                with torch.no_grad():
-                    outputs = model(input_ids, attention_mask=attention_mask, return_all_outputs=True)
+            with torch.no_grad():
+                outputs = model(input_ids, attention_mask=attention_mask, return_all_outputs=True)
 
-                write_examples(f, tuple(tensor.cpu().tolist() for tensor in tuple(batch) + outputs[:3]))
+            batch_np = tuple(tensor.cpu().numpy() for tensor in batch)
+            outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
+            for output in zip(*(batch_np + outputs_np)):
+                data_point = EvalDataPoint(*output)
+                gold_clusters = extract_clusters(data_point.gold_clusters)
+                mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
+                predicted_clusters = cluster_mentions(data_point.mention_logits,
+                                                      data_point.start_coref_logits,
+                                                      data_point.end_coref_logits,
+                                                      data_point.attention_mask,
+                                                      self.args.top_lambda)
+                mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
+                predicted_mentions = list(mention_to_predicted_clusters.keys())
+                gold_mentions = list(mention_to_gold_clusters.keys())
+                mention_evaluator.update(predicted_mentions, gold_mentions)
+                coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters, mention_to_gold_clusters)
 
+        mention_precision, mentions_recall, mention_f1 = mention_evaluator.get_prf()
+        logger.info(f"mention precision: {mention_precision:.4f}, "
+                    f"mention recall: {mentions_recall:.4f}, "
+                    f"mention f1: {mention_f1:.4f}")
+        prec, rec, f1 = coref_evaluator.get_prf()
+        logger.info(f"precision: {prec:.4f}, recall: {rec:.4f}, f1: {f1:.4f}")
 
-        results = {}
+        results = [
+            ("mention_precision", mention_precision),
+            ("mentions_recall", mentions_recall),
+            ("mention_f1", mention_f1),
+            ("precision", prec),
+            ("recall", rec),
+            ("f1", f1)
+        ]
         logger.info("***** Eval results {} *****".format(prefix))
         for key, values in results:
             if isinstance(values, float):

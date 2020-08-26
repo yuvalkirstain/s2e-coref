@@ -70,8 +70,8 @@ def brute_force_decode(mention_logits, start_coref_logits, end_coref_logits, can
     mention_to_antecedents_scores = defaultdict(list)
     gold_mentions = sorted(mention_to_gold_clusters.keys(), key=lambda x: x[0], reverse=True)
     for start_id, end_id in candidate_mentions:
-        candidate_start_antecedents = np.argpartition(start_coref_logits[start_id].reshape(-1), 50)[-50:]
-        candidate_end_antecedents = np.argpartition(end_coref_logits[end_id].reshape(-1), 50)[-50:]
+        candidate_start_antecedents = np.argpartition(-start_coref_logits[start_id].reshape(-1), 50)[:50]
+        candidate_end_antecedents = np.argpartition(-end_coref_logits[end_id].reshape(-1), 50)[:50]
         candidate_antecedents = np.transpose([np.tile(candidate_start_antecedents, len(candidate_end_antecedents)),
                                               np.repeat(candidate_end_antecedents, len(candidate_start_antecedents))])
         for start_antecedent_id, end_antecedent_id in candidate_antecedents:

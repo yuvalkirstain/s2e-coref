@@ -9,6 +9,33 @@ def f1(p_num, p_den, r_num, r_den, beta=1):
     return 0 if p + r == 0 else (1 + beta * beta) * p * r / (beta * beta * p + r)
 
 
+class MentionEvaluator:
+    def __init__(self):
+        self.tp, self.fp, self.fn = 0, 0, 0
+
+    def update(self, predicted_mentions, gold_mentions):
+        predicted_mentions = set(predicted_mentions)
+        gold_mentions = set(gold_mentions)
+
+        self.tp += len(predicted_mentions & gold_mentions)
+        self.fp += len(predicted_mentions - gold_mentions)
+        self.fn += len(gold_mentions - predicted_mentions)
+
+    def get_f1(self):
+        pr = self.get_precision()
+        rec = self.get_recall()
+        return 2 * pr * rec / (pr + rec) if pr + rec > 0 else 0.0
+
+    def get_recall(self):
+        return self.tp / (self.tp + self.fn) if (self.tp + self.fn) > 0 else 0.0
+
+    def get_precision(self):
+        return self.tp / (self.tp + self.fp) if (self.tp + self.fp) > 0 else 0.0
+
+    def get_prf(self):
+        return self.get_precision(), self.get_recall(), self.get_f1()
+
+
 class CorefEvaluator(object):
     def __init__(self):
         self.evaluators = [Evaluator(m) for m in (muc, b_cubed, ceafe)]
