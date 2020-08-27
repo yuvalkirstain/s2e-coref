@@ -107,7 +107,7 @@ def parse_args():
                              "A number of warnings are expected for a normal SQuAD evaluation.")
 
     parser.add_argument("--logging_steps", type=int, default=500, help="Log every X updates steps.")
-    parser.add_argument("--eval_steps", type=int, default=5000, help="Eval every X updates steps.")
+    parser.add_argument("--eval_steps", type=int, default=500, help="Eval every X updates steps.")
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.")
     parser.add_argument("--no_cuda", action="store_true", help="Whether not to use CUDA when available")
     parser.add_argument(

@@ -153,7 +153,8 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                 loss = loss / args.gradient_accumulation_steps
 
             if loss > 1000 or str(loss.item()) == 'nan':
-                logger.info(f"\nloss: {loss}, "
+                logger.info(f"\nglobal_step: {global_step},"
+                            f"loss: {loss}, "
                             f"entity_mention_loss: {entity_mention_loss}, "
                             f"start_coref_loss: {start_coref_loss},"
                             f"end_coref_loss: {end_coref_loss}")

@@ -150,27 +150,34 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
 
         if self.antecedent_loss == "allowed":
-            only_positive_labels = labels.clone()
-            only_positive_labels[:, :, 0] = 0
-            num_positive_examples = torch.sum(only_positive_labels)
-            num_negative_examples = torch.sum(labels[:, :, 0]) - torch.sum(1 - attention_mask)
-            pos_weight = num_negative_examples / num_positive_examples
+            only_non_null_labels = labels.clone()
+            only_non_null_labels[:, :, 0] = 0
+
+            non_null_loss_weights = torch.sum(only_non_null_labels, dim=-1)
+            non_null_loss_weights[non_null_loss_weights != 0] = 1
+            num_non_null_labels = torch.sum(non_null_loss_weights)
+
+            only_null_labels = torch.zeros_like(labels)
+            only_null_labels[:, :, 0] = 1
+            only_null_labels = only_null_labels * labels
+            null_loss_weights = torch.sum(only_null_labels, dim=-1)
+            null_loss_weights[null_loss_weights != 0] = 1
+            num_null_labels = torch.sum(null_loss_weights)
 
             gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
             all_log_sum_exp = torch.logsumexp(antecedent_logits, dim=-1)  # [batch_size, seq_length]
 
             gold_log_probs = gold_log_sum_exp - all_log_sum_exp
             losses = -gold_log_probs
+            losses = losses * attention_mask
 
-            loss_weights = (torch.sum(only_positive_labels, dim=-1) * (pos_weight - 1)) + 1
-            losses = losses * loss_weights
+            non_null_losses = losses * non_null_loss_weights
+            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-8)
 
-            attention_mask_to_add = torch.zeros_like(attention_mask)
-            attention_mask_to_add[:, 0] = -1
-            attention_mask = attention_mask + attention_mask_to_add
-            sum_losses = torch.sum(losses * attention_mask)
-            num_examples = torch.sum(attention_mask)
-            loss = sum_losses / (num_examples + 1e-8)
+            null_losses = losses * null_loss_weights
+            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-8)
+
+            loss = (non_null_loss + null_loss) / 2
         else:  # == bce
             weights = torch.ones_like(labels).tril()
             weights[:, 0, 0] = 1
