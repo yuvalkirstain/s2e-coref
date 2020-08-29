@@ -145,7 +145,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         :param antecedent_logits: [batch_size, seq_length, seq_length]
         :param attention_mask: [batch_size, seq_length]
         """
-        seq_length = antecedent_logits.size(-1)
+        batch_size, seq_length = attention_mask.size()
         labels = self._prepare_antecedent_matrix(antecedent_labels)  # [batch_size, seq_length, seq_length]
         gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
 
@@ -172,10 +172,10 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             losses = losses * attention_mask
 
             non_null_losses = losses * non_null_loss_weights
-            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-8)
+            non_null_loss = torch.sum(non_null_losses) / (batch_size + 1e-8)
 
             null_losses = losses * null_loss_weights
-            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-8)
+            null_loss = torch.sum(null_losses) / (batch_size + 1e-8)
 
             loss = (non_null_loss + null_loss) / 2
         else:  # == bce
