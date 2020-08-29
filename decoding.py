@@ -15,7 +15,7 @@ def prune_top_k(mention_logits, top_k):
     candidate_mentions_ravel_ids = candidate_mentions_ravel_ids_partition[:top_k]
     candidate_mentions = sorted(
         np.unravel_index(mention, mention_logits.shape) for mention in candidate_mentions_ravel_ids)
-
+    candidate_mentions = [(start, end) for start, end in candidate_mentions if mention_logits[start, end] > 0]
     return candidate_mentions
 
 
