@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import numpy as np
 
+NULL_SPAN_IDX = 0
 
 def prune_top_k(mention_logits, top_k):
     """
@@ -50,8 +51,8 @@ def find_antecedent_of_mentions(candidate_spans, mention_logits, start_coref_log
 
 def cluster_mentions(mention_logits, start_coref_logits, end_coref_logits, attention_mask, top_lambda=0.4):
     top_k = int(np.sum(attention_mask) * top_lambda)
-    candidate_spans = prune_top_k(mention_logits, top_k)
-    mention_to_antecedent = find_antecedent_of_mentions(candidate_spans, mention_logits, start_coref_logits,
+    candidate_mentions = prune_top_k(mention_logits, top_k)
+    mention_to_antecedent = find_antecedent_of_mentions(candidate_mentions, mention_logits, start_coref_logits,
                                                         end_coref_logits)
     mention_to_cluster = {}
     clusters = []
@@ -67,7 +68,7 @@ def cluster_mentions(mention_logits, start_coref_logits, end_coref_logits, atten
             mention_to_cluster[antecedent] = cluster_idx
             clusters.append([antecedent, mention])
 
-    return [tuple(cluster) for cluster in clusters]
+    return [tuple(cluster) for cluster in clusters], candidate_mentions
 
 
 if __name__ == "__main__":

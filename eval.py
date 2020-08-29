@@ -41,6 +41,7 @@ class Evaluator:
         logger.info("  Examples number: %d", len(eval_dataset))
         model.eval()
 
+        post_pruning_mention_evaluator = MentionEvaluator()
         mention_evaluator = MentionEvaluator()
         coref_evaluator = CorefEvaluator()
         for batch in eval_dataloader:
@@ -61,25 +62,37 @@ class Evaluator:
                 data_point = EvalDataPoint(*output)
                 gold_clusters = extract_clusters(data_point.gold_clusters)
                 mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
-                predicted_clusters = cluster_mentions(data_point.mention_logits,
-                                                      data_point.start_coref_logits,
-                                                      data_point.end_coref_logits,
-                                                      data_point.attention_mask,
-                                                      self.args.top_lambda)
+                predicted_clusters, candidate_mentions = cluster_mentions(data_point.mention_logits,
+                                                                          data_point.start_coref_logits,
+                                                                          data_point.end_coref_logits,
+                                                                          data_point.attention_mask,
+                                                                          self.args.top_lambda)
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())
                 gold_mentions = list(mention_to_gold_clusters.keys())
+                post_pruning_mention_evaluator.update(candidate_mentions, gold_mentions)
                 mention_evaluator.update(predicted_mentions, gold_mentions)
-                coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters, mention_to_gold_clusters)
+                coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters,
+                                       mention_to_gold_clusters)
 
+        post_pruning_mention_precision, post_pruning_mentions_recall, post_pruning_mention_f1 = post_pruning_mention_evaluator.get_prf()
+        logger.info("=" * 5 + " Post Pruning mention results " + "=" * 5 +
+                    f"\npost pruning mention precision: {post_pruning_mention_precision:.4f}, "
+                    f"\npost pruning mention recall: {post_pruning_mentions_recall:.4f}, "
+                    f"\npost pruning mention f1: {post_pruning_mention_f1:.4f}")
         mention_precision, mentions_recall, mention_f1 = mention_evaluator.get_prf()
-        logger.info(f"mention precision: {mention_precision:.4f}, "
-                    f"mention recall: {mentions_recall:.4f}, "
-                    f"mention f1: {mention_f1:.4f}")
+        logger.info("=" * 5 + " mention results " + "=" * 5 +
+                    f"\nmention precision: {mention_precision:.4f}, "
+                    f"\nmention recall: {mentions_recall:.4f}, "
+                    f"\nmention f1: {mention_f1:.4f}")
         prec, rec, f1 = coref_evaluator.get_prf()
-        logger.info(f"precision: {prec:.4f}, recall: {rec:.4f}, f1: {f1:.4f}")
+        logger.info("=" * 5 + " results " + "=" * 5 +
+                    f"\nprecision: {prec:.4f}, recall: {rec:.4f}, f1: {f1:.4f}")
 
         results = [
+            ("post pruning mention precision", post_pruning_mention_precision),
+            ("post pruning mention recall", post_pruning_mentions_recall),
+            ("post pruning mention f1", post_pruning_mention_f1),
             ("mention precision", mention_precision),
             ("mention recall", mentions_recall),
             ("mention f1", mention_f1),
