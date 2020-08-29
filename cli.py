@@ -127,6 +127,13 @@ def parse_args():
         action="store_true",
         help="Whether to use automatic mixed precision instead of 32-bit",
     )
+    parser.add_argument(
+        "--fp16_opt_level",
+        type=str,
+        default="O1",
+        help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
+             "See details at https://nvidia.github.io/apex/amp.html",
+    )
     parser.add_argument("--server_ip", type=str, default="", help="Can be used for distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
 
