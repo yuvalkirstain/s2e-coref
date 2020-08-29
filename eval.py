@@ -44,17 +44,30 @@ class Evaluator:
         post_pruning_mention_evaluator = MentionEvaluator()
         mention_evaluator = MentionEvaluator()
         coref_evaluator = CorefEvaluator()
+        losses = {"loss": [], "entity_mention_loss": [], "start_coref_loss": [], "end_coref_loss": []}
         for batch in eval_dataloader:
             if random.random() > self.sampling_prob:
                 continue
 
-            # batch = tuple(tensor.to(self.args.device) for tensor in batch)
+            batch = tuple(tensor.to(self.args.device) for tensor in batch)
             input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
-            input_ids = input_ids.to(self.args.device)
-            attention_mask = attention_mask.to(self.args.device)
 
             with torch.no_grad():
-                outputs = model(input_ids, attention_mask=attention_mask, return_all_outputs=True)
+                outputs = model(input_ids=input_ids,
+                                attention_mask=attention_mask,
+                                start_entity_mention_labels=start_entity_mentions_indices,
+                                end_entity_mention_labels=end_entity_mentions_indices,
+                                start_antecedent_labels=start_antecedents_indices,
+                                end_antecedent_labels=end_antecedents_indices,
+                                return_all_outputs=True)
+            loss = outputs[0]
+            losses["loss"].append(loss)
+            entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
+            losses["entity_mention_loss"].append(entity_mention_loss)
+            losses["start_coref_loss"].append(start_coref_loss)
+            losses["end_coref_loss"].append(end_coref_loss)
+
+            outputs = outputs[1:-3]
 
             batch_np = tuple(tensor.cpu().numpy() for tensor in batch)
             outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
@@ -76,20 +89,14 @@ class Evaluator:
                                        mention_to_gold_clusters)
 
         post_pruning_mention_precision, post_pruning_mentions_recall, post_pruning_mention_f1 = post_pruning_mention_evaluator.get_prf()
-        logger.info("=" * 5 + " Post Pruning mention results " + "=" * 5 +
-                    f"\npost pruning mention precision: {post_pruning_mention_precision:.4f}, "
-                    f"\npost pruning mention recall: {post_pruning_mentions_recall:.4f}, "
-                    f"\npost pruning mention f1: {post_pruning_mention_f1:.4f}")
         mention_precision, mentions_recall, mention_f1 = mention_evaluator.get_prf()
-        logger.info("=" * 5 + " mention results " + "=" * 5 +
-                    f"\nmention precision: {mention_precision:.4f}, "
-                    f"\nmention recall: {mentions_recall:.4f}, "
-                    f"\nmention f1: {mention_f1:.4f}")
         prec, rec, f1 = coref_evaluator.get_prf()
-        logger.info("=" * 5 + " results " + "=" * 5 +
-                    f"\nprecision: {prec:.4f}, recall: {rec:.4f}, f1: {f1:.4f}")
 
         results = [
+            ("eval loss", sum(losses["loss"]) / len(losses["loss"])),
+            ("eval entity_mention_loss", sum(losses["entity_mention_loss"]) / len(losses["entity_mention_loss"])),
+            ("eval start_coref_loss", sum(losses["start_coref_loss"]) / len(losses["start_coref_loss"])),
+            ("eval end_coref_loss", sum(losses["end_coref_loss"]) / len(losses["end_coref_loss"])),
             ("post pruning mention precision", post_pruning_mention_precision),
             ("post pruning mention recall", post_pruning_mentions_recall),
             ("post pruning mention f1", post_pruning_mention_f1),
