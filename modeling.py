@@ -172,10 +172,10 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             losses = losses * attention_mask
 
             non_null_losses = losses * non_null_loss_weights
-            non_null_loss = torch.sum(non_null_losses) / (batch_size + 1e-8)
+            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-8)
 
             null_losses = losses * null_loss_weights
-            null_loss = torch.sum(null_losses) / (batch_size + 1e-8)
+            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-8)
 
             loss = (non_null_loss + null_loss) / 2
         else:  # == bce
