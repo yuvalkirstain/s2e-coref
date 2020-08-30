@@ -86,6 +86,7 @@ def parse_args():
         "--per_gpu_eval_batch_size", default=8, type=int, help="Batch size per GPU/CPU for evaluation."
     )
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
+    parser.add_argument("--dropout_prob", default=0.1, type=float)
     parser.add_argument("--gradient_accumulation_steps",
                         type=int,
                         default=1,
