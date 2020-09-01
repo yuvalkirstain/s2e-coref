@@ -142,6 +142,7 @@ def parse_args():
     parser.add_argument("--max_span_length", type=int, required=False, default=32)
     parser.add_argument("--seperate_mention_loss", action='store_true')
     parser.add_argument("--top_lambda", type=float, default=0.4)
+    parser.add_argument("--prune_mention_for_antecedents", action="store_true")
 
     args = parser.parse_args()
 

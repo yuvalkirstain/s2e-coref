@@ -26,12 +26,14 @@ class FullyConnectedLayer(Module):
 
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
-    def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss):
+    def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
+                 prune_mention_for_antecedents):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
         self.max_span_length = max_span_length
         self.seperate_mention_loss = seperate_mention_loss
+        self.prune_mention_for_antecedents = prune_mention_for_antecedents
         self.args = args
 
         if args.model_type == "longformer":
@@ -139,7 +141,25 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         loss = neg_loss + pos_loss
         return loss
 
-    def _compute_antecedent_loss(self, antecedent_labels, antecedent_logits, attention_mask=None):
+    def _calc_pruned_mention_masks(self, mention_logits):
+        batch_size, seq_len, _ = mention_logits.size()
+        device = mention_logits.device
+        mention_logits = mention_logits.clone()
+        mention_logits[mention_logits <= 0] = 0
+        mention_logits[mention_logits > 0] = 1
+        mask_indices = torch.nonzero(mention_logits)
+
+        start_indices = mask_indices[:, [0, 1]]
+        start_mention_mask = torch.zeros((batch_size, seq_len), device=device)
+        start_mention_mask[start_indices[:, 0], start_indices[:, 1]] = 1
+
+        end_indices = mask_indices[:, [0, 2]]
+        end_mention_mask = torch.zeros((batch_size, seq_len), device=device)
+        end_mention_mask[end_indices[:, 0], end_indices[:, 1]] = 1
+
+        return start_mention_mask, end_mention_mask
+
+    def _compute_antecedent_loss(self, antecedent_labels, antecedent_logits, attention_mask, mention_mask):
         """
         :param antecedent_labels: [batch_size, seq_length, cluster_size]
         :param antecedent_logits: [batch_size, seq_length, seq_length]
@@ -162,6 +182,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             only_null_labels = only_null_labels * labels
             null_loss_weights = torch.sum(only_null_labels, dim=-1)
             null_loss_weights[null_loss_weights != 0] = 1
+            if self.prune_mention_for_antecedents:
+                null_loss_weights = null_loss_weights * mention_mask
             num_null_labels = torch.sum(null_loss_weights)
 
             gold_log_sum_exp = torch.logsumexp(gold_antecedent_logits, dim=-1)  # [batch_size, seq_length]
@@ -281,12 +303,18 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                     end_entity_mention_labels=end_entity_mention_labels,
                     mention_logits=mention_logits,
                     attention_mask=attention_mask)
+            if self.prune_mention_for_antecedents:
+                start_mention_mask, end_mention_mask = self._calc_pruned_mention_masks(mention_logits)
+            else:
+                start_mention_mask, end_mention_mask = None, None
             start_coref_loss = self._compute_antecedent_loss(antecedent_labels=start_antecedent_labels,
                                                              antecedent_logits=start_coref_logits,
-                                                             attention_mask=attention_mask)
+                                                             attention_mask=attention_mask,
+                                                             mention_mask=start_mention_mask)
             end_coref_loss = self._compute_antecedent_loss(antecedent_labels=end_antecedent_labels,
                                                            antecedent_logits=end_coref_logits,
-                                                           attention_mask=attention_mask)
+                                                           attention_mask=attention_mask,
+                                                           mention_mask=end_mention_mask)
             loss = entity_mention_loss + start_coref_loss + end_coref_loss
             outputs = (loss,) + outputs + (entity_mention_loss, start_coref_loss, end_coref_loss)
 

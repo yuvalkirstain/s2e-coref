@@ -107,6 +107,7 @@ def main():
                                                        antecedent_loss=args.antecedent_loss,
                                                        max_span_length=args.max_span_length,
                                                        seperate_mention_loss=args.seperate_mention_loss,
+                                                       prune_mention_for_antecedents=args.prune_mention_for_antecedents,
                                                        args=args)
     # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)
