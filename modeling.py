@@ -147,7 +147,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         mention_logits = mention_logits.clone()
         mention_logits[mention_logits <= 0] = 0
         mention_logits[mention_logits > 0] = 1
-        mask_indices = torch.nonzero(mention_logits)
+        mask_indices = torch.nonzero(mention_logits)  # should have only indices that passed pruning ( > 0)
 
         start_indices = mask_indices[:, [0, 1]]
         start_mention_mask = torch.zeros((batch_size, seq_len), device=device)
