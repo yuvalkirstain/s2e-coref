@@ -33,11 +33,12 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Prepare optimizer and schedule (linear warmup and decay)
-    no_decay = ['bias', 'LayerNorm.weight']
+    head_params = ['coref', 'mention', 'antecedent']
+    head_learning_rate = args.head_learning_rate if args.head_learning_rate else args.learning_rate
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-         'weight_decay': args.weight_decay},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        {'params': [p for n, p in model.named_parameters() if not any(hp in n for hp in head_params)]},
+        {'params': [p for n, p in model.named_parameters() if any(hp in n for hp in head_params)],
+         'lr': head_learning_rate}
     ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps,
