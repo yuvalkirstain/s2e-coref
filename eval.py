@@ -60,9 +60,14 @@ class Evaluator:
                                 start_antecedent_labels=start_antecedents_indices,
                                 end_antecedent_labels=end_antecedents_indices,
                                 return_all_outputs=True)
-            loss = outputs[0]
+                loss = outputs[0]
+                entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
+
+            if self.args.n_gpu > 1:
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                entity_mention_loss, start_coref_loss, end_coref_loss = entity_mention_loss.mean(), start_coref_loss.mean(), end_coref_loss.mean()
+
             losses["loss"].append(loss)
-            entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
             losses["entity_mention_loss"].append(entity_mention_loss)
             losses["start_coref_loss"].append(start_coref_loss)
             losses["end_coref_loss"].append(end_coref_loss)

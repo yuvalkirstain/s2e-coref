@@ -131,12 +131,12 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         pos_weights = weights * labels
         per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
         per_example_pos_loss = per_example_pos_loss_fct(logits, labels)
-        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-8)
+        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
 
         neg_weights = weights * (1 - labels)
         per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
         per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
-        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-8)
+        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
 
         loss = neg_loss + pos_loss
         return loss
@@ -147,7 +147,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         mention_logits = mention_logits.clone()
         mention_logits[mention_logits <= 0] = 0
         mention_logits[mention_logits > 0] = 1
-        mask_indices = torch.nonzero(mention_logits)
+        mask_indices = torch.nonzero(mention_logits)  # should have only indices that passed pruning ( > 0)
 
         start_indices = mask_indices[:, [0, 1]]
         start_mention_mask = torch.zeros((batch_size, seq_len), device=device)
@@ -167,7 +167,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         """
         batch_size, seq_length = attention_mask.size()
         labels = self._prepare_antecedent_matrix(antecedent_labels)  # [batch_size, seq_length, seq_length]
-        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e8)
+        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e4)
 
         if self.antecedent_loss == "allowed":
             only_non_null_labels = labels.clone()
@@ -194,10 +194,10 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             losses = losses * attention_mask
 
             non_null_losses = losses * non_null_loss_weights
-            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-8)
+            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-4)
 
             null_losses = losses * null_loss_weights
-            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-8)
+            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-4)
 
             loss = (non_null_loss + null_loss) / 2
         else:  # == bce
@@ -222,7 +222,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
     def mask_antecedent_logits(self, antecedent_logits):
         antecedents_mask = torch.ones_like(antecedent_logits).triu(diagonal=1) * (
-            -1e8)  # [batch_size, seq_length, seq_length]
+            -1e4)  # [batch_size, seq_length, seq_length]
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
@@ -270,7 +270,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
         mention_mask = self._get_mention_mask(mention_logits)
-        mention_mask = (1 - mention_mask) * -1e8
+        mention_mask = (1 - mention_mask) * -1e4
         mention_logits = mention_logits + mention_mask
 
         # Antecedent scores
