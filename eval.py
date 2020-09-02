@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch import nn
 from coref_bucket_batch_sampler import BucketBatchSampler
 from data import get_dataset
-from decoding import cluster_mentions
+from decoding import Decoder
 from metrics import CorefEvaluator, MentionEvaluator
 from utils import write_examples, EVAL_DATA_FILE_NAME, EvalDataPoint, extract_clusters, \
     extract_mentions_to_predicted_clusters_from_clusters
@@ -78,16 +78,26 @@ class Evaluator:
             outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
             for output in zip(*(batch_np + outputs_np)):
                 data_point = EvalDataPoint(*output)
+
                 gold_clusters = extract_clusters(data_point.gold_clusters)
                 mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
-                predicted_clusters, candidate_mentions = cluster_mentions(data_point.mention_logits,
-                                                                          data_point.start_coref_logits,
-                                                                          data_point.end_coref_logits,
-                                                                          data_point.attention_mask,
-                                                                          self.args.top_lambda)
+                gold_mentions = list(mention_to_gold_clusters.keys())
+
+                decoder = Decoder(use_mention_logits_for_antecedents=self.args.use_mention_logits_for_antecedents,
+                                  use_mention_oracle=self.args.use_mention_oracle,
+                                  gold_mentions=gold_mentions,
+                                  gold_clusters=gold_clusters,
+                                  use_crossing_mentions_pruning=self.args.use_crossing_mentions_pruning)
+
+                predicted_clusters, candidate_mentions = decoder.cluster_mentions(data_point.mention_logits,
+                                                                                  data_point.start_coref_logits,
+                                                                                  data_point.end_coref_logits,
+                                                                                  data_point.attention_mask,
+                                                                                  self.args.top_lambda)
+
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())
-                gold_mentions = list(mention_to_gold_clusters.keys())
+
                 post_pruning_mention_evaluator.update(candidate_mentions, gold_mentions)
                 mention_evaluator.update(predicted_mentions, gold_mentions)
                 coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters,

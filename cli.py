@@ -144,6 +144,10 @@ def parse_args():
     parser.add_argument("--top_lambda", type=float, default=0.4)
     parser.add_argument("--prune_mention_for_antecedents", action="store_true")
 
+    parser.add_argument("--use_mention_logits_for_antecedents", action="store_true")
+    parser.add_argument("--use_mention_oracle", action="store_true")
+    parser.add_argument("--use_crossing_mentions_pruning", action="store_true")
+
     args = parser.parse_args()
 
     return args
