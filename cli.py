@@ -148,6 +148,9 @@ def parse_args():
     parser.add_argument("--use_mention_oracle", action="store_true")
     parser.add_argument("--use_crossing_mentions_pruning", action="store_true")
 
+    parser.add_argument("--max_total_seq_len", type=int, default=3500)
+
+
     args = parser.parse_args()
 
     return args
