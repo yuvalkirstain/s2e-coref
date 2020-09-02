@@ -149,8 +149,10 @@ def parse_args():
     parser.add_argument("--use_crossing_mentions_pruning", action="store_true")
 
     parser.add_argument("--max_total_seq_len", type=int, default=3500)
-
+    parser.add_argument("--experiment_name", type=str, default=None)
+    parser.add_argument("--results_dir", type=str, default=None)
 
     args = parser.parse_args()
 
+    assert (args.experiment_name is not None and args.results_dir is not None) or (args.results_dir is None and args.experiment_name is None)
     return args

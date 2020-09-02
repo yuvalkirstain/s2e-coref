@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import random
@@ -108,10 +109,10 @@ class Evaluator:
         prec, rec, f1 = coref_evaluator.get_prf()
 
         results = [
-            ("eval loss", sum(losses["loss"]) / len(losses["loss"])),
-            ("eval entity_mention_loss", sum(losses["entity_mention_loss"]) / len(losses["entity_mention_loss"])),
-            ("eval start_coref_loss", sum(losses["start_coref_loss"]) / len(losses["start_coref_loss"])),
-            ("eval end_coref_loss", sum(losses["end_coref_loss"]) / len(losses["end_coref_loss"])),
+            ("eval loss", sum(losses["loss"]).item() / len(losses["loss"])),
+            ("eval entity_mention_loss", sum(losses["entity_mention_loss"]).item() / len(losses["entity_mention_loss"])),
+            ("eval start_coref_loss", sum(losses["start_coref_loss"]).item() / len(losses["start_coref_loss"])),
+            ("eval end_coref_loss", sum(losses["end_coref_loss"]).item() / len(losses["end_coref_loss"])),
             ("post pruning mention precision", post_pruning_mention_precision),
             ("post pruning mention recall", post_pruning_mentions_recall),
             ("post pruning mention f1", post_pruning_mention_f1),
@@ -139,5 +140,9 @@ class Evaluator:
                         writer.write(f"{key} = {values:.3f}\n")
                     else:
                         writer.write(f"{key} = {values}\n")
-
+        if self.args.results_dir:
+            to_out = {key: val for key, val in results}
+            to_out["experiment_name"] = self.args.experiment_name
+            with open(os.path.join(self.args.results_dir, self.args.experiment_name + ".jsonl"), "a+") as f:
+                f.write(json.dumps(to_out) + '\n')
         return results
