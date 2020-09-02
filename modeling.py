@@ -169,6 +169,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         labels = self._prepare_antecedent_matrix(antecedent_labels)  # [batch_size, seq_length, seq_length]
         labels_mask = labels.clone().to(dtype=self.dtype)  # fp16 compatibility
         gold_antecedent_logits = antecedent_logits + ((1.0 - labels_mask) * -10000.0)
+        gold_antecedent_logits = torch.clamp(gold_antecedent_logits, min=-10000.0, max=10000.0)
 
         if self.antecedent_loss == "allowed":
             only_non_null_labels = labels.clone()
@@ -223,6 +224,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
     def mask_antecedent_logits(self, antecedent_logits):
         antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
+        antecedents_mask = torch.clamp(antecedents_mask, min=-10000.0, max=10000.0)
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
@@ -271,6 +273,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
         mention_mask = self._get_mention_mask(mention_logits)
         mention_mask = (1.0 - mention_mask) * -10000.0
+        mention_mask = torch.clamp(mention_mask, min=-10000.0, max=10000.0)
         mention_logits = mention_logits + mention_mask
 
         # Antecedent scores
