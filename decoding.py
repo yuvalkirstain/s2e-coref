@@ -60,6 +60,12 @@ class Decoder:
         else:
             candidate_starts, candidate_ends = np.where(mention_logits > 4)
             candidate_mentions = sorted(zip(candidate_starts.tolist(), candidate_ends.tolist()))
+            if len(candidate_mentions) > top_k:
+                candidate_starts, candidate_ends = np.unravel_index(np.argsort(-mention_logits, axis=None),
+                                                                    mention_logits.shape)
+                candidate_mentions = list(zip((candidate_starts[:top_k]).tolist(),
+                                              (candidate_ends[:top_k]).tolist()))
+                candidate_mentions = list(filter(lambda x: mention_logits[x[0], x[1]] > 4, candidate_mentions))
         return candidate_mentions
 
     def find_mention_to_antecedent(self, candidate_spans, mention_logits, start_coref_logits, end_coref_logits):
