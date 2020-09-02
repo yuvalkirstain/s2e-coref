@@ -2,7 +2,7 @@ import json
 import os
 import logging
 import random
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 import pickle
 import numpy as np
 import torch
@@ -140,9 +140,11 @@ class Evaluator:
                         writer.write(f"{key} = {values:.3f}\n")
                     else:
                         writer.write(f"{key} = {values}\n")
+
+        results = OrderedDict(results)
+        results["experiment_name"] = self.args.experiment_name
+        results["data"] = prefix
         if self.args.results_dir:
-            to_out = {key: val for key, val in results}
-            to_out["experiment_name"] = self.args.experiment_name
             with open(os.path.join(self.args.results_dir, self.args.experiment_name + ".jsonl"), "a+") as f:
-                f.write(json.dumps(to_out) + '\n')
+                f.write(json.dumps(results) + '\n')
         return results

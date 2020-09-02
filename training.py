@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import random
@@ -121,7 +122,8 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     )
     # Added here for reproducibility
     set_seed(args)
-
+    best_f1 = -1
+    best_global_step = -1
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
@@ -184,7 +186,10 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
                 if args.local_rank in [-1, 0] and args.do_eval and args.eval_steps > 0 and global_step % args.eval_steps == 0:
                     results = evaluator.evaluate(model, prefix=f'step_{global_step}')
-
+                    f1 = results["f1"]
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_global_step = global_step
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
                     output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
@@ -205,8 +210,10 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         if 0 < t_total < global_step:
             train_iterator.close()
             break
-
-
+    if args.results_dir is None:
+        args.results_dir = args.output_dir
+    with open(os.path.join(args.results_dir, args.experiment_name, "best_f1.json"), "w") as f:
+        json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
     # if args.local_rank in [-1, 0]:
     #     tb_writer.close()
 
