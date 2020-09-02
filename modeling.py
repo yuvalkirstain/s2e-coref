@@ -167,7 +167,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         """
         batch_size, seq_length = attention_mask.size()
         labels = self._prepare_antecedent_matrix(antecedent_labels)  # [batch_size, seq_length, seq_length]
-        gold_antecedent_logits = antecedent_logits + ((1 - labels) * -1e4)
+        labels_mask = labels.clone().to(dtype=self.dtype)  # fp16 compatibility
+        gold_antecedent_logits = antecedent_logits + ((1.0 - labels_mask) * -10000.0)
 
         if self.antecedent_loss == "allowed":
             only_non_null_labels = labels.clone()
@@ -221,8 +222,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         return loss
 
     def mask_antecedent_logits(self, antecedent_logits):
-        antecedents_mask = torch.ones_like(antecedent_logits).triu(diagonal=1) * (
-            -1e4)  # [batch_size, seq_length, seq_length]
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
         return antecedent_logits
@@ -233,7 +233,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         (start <= end < start + max_span_length) are 1 and the rest are 0
         :param mention_logits_or_weights: Either the span mention logits or weights, size [batch_size, seq_length, seq_length]
         """
-        mention_mask = torch.ones_like(mention_logits_or_weights)
+        mention_mask = torch.ones_like(mention_logits_or_weights, dtype=self.dtype)
         mention_mask = mention_mask.triu(diagonal=0)
         mention_mask = mention_mask.tril(diagonal=self.max_span_length - 1)
         return mention_mask
@@ -270,7 +270,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
         mention_mask = self._get_mention_mask(mention_logits)
-        mention_mask = (1 - mention_mask) * -1e4
+        mention_mask = (1.0 - mention_mask) * -10000.0
         mention_logits = mention_logits + mention_mask
 
         # Antecedent scores
