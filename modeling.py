@@ -27,13 +27,14 @@ class FullyConnectedLayer(Module):
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents):
+                 prune_mention_for_antecedents, normalize_antecedent_loss=True):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
         self.max_span_length = max_span_length
         self.seperate_mention_loss = seperate_mention_loss
         self.prune_mention_for_antecedents = prune_mention_for_antecedents
+        self.normalize_antecedent_loss = normalize_antecedent_loss
         self.args = args
 
         if args.model_type == "longformer":
@@ -196,10 +197,12 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             losses = losses * attention_mask
 
             non_null_losses = losses * non_null_loss_weights
-            non_null_loss = torch.sum(non_null_losses) / (num_non_null_labels + 1e-4)
+            denom_non_null = num_non_null_labels if self.normalize_antecedent_loss else batch_size
+            non_null_loss = torch.sum(non_null_losses) / (denom_non_null + 1e-4)
 
             null_losses = losses * null_loss_weights
-            null_loss = torch.sum(null_losses) / (num_null_labels + 1e-4)
+            denom_null = num_null_labels if self.normalize_antecedent_loss else batch_size
+            null_loss = torch.sum(null_losses) / (denom_null + 1e-4)
 
             loss = (non_null_loss + null_loss) / 2
         else:  # == bce
