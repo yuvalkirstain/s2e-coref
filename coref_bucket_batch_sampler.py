@@ -42,12 +42,12 @@ class BucketBatchSampler(DataLoader):
         for elem in self.data_source:
             if len(batch) == 0:
                 # TODO change to config.attention_window
-                per_example_batch_len = math.ceil((len(elem.token_ids) + 2) / 512) * 512
+                per_example_batch_len = self.calc_effective_per_example_batch_len(len(elem.token_ids))
             elif (len(batch) + 1) * per_example_batch_len > self.max_total_seq_len:
                 batch = self.data_source.pad_batch(batch, len(batch[0].token_ids))
                 batches.append(batch)
                 batch = []
-                per_example_batch_len = math.ceil(len(elem.token_ids) / 512) * 512
+                per_example_batch_len = self.calc_effective_per_example_batch_len(len(elem.token_ids))
             batch.append(elem)
         if len(batch) == 0:
             return batches
@@ -73,4 +73,7 @@ class BucketBatchSampler(DataLoader):
 
     def __len__(self):
         return len(self.batches)
+
+    def calc_effective_per_example_batch_len(self, example_len):
+        return math.ceil((example_len + 2) / 512) * 512
 

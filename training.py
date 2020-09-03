@@ -130,7 +130,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
             batch = tuple(tensor.to(args.device) for tensor in batch)
             input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
             model.train()
-
+            # print(input_ids.size())
             outputs = model(input_ids=input_ids,
                             attention_mask=attention_mask,
                             start_entity_mention_labels=start_entity_mentions_indices,
