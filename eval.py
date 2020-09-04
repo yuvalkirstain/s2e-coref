@@ -67,7 +67,7 @@ class Evaluator:
                 loss_dict = {key: val.mean() for key, val in loss_dict.items()}
 
             for key, val in loss_dict.items():
-                losses[key].append(val)
+                losses[key].append(val.item())
 
             outputs = outputs[1:-1]
 
