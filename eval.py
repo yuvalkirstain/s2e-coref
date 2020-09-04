@@ -2,7 +2,7 @@ import json
 import os
 import logging
 import random
-from collections import namedtuple, OrderedDict
+from collections import namedtuple, OrderedDict, defaultdict
 import pickle
 import numpy as np
 import torch
@@ -45,7 +45,7 @@ class Evaluator:
         post_pruning_mention_evaluator = MentionEvaluator()
         mention_evaluator = MentionEvaluator()
         coref_evaluator = CorefEvaluator()
-        losses = {"loss": [], "entity_mention_loss": [], "start_coref_loss": [], "end_coref_loss": []}
+        losses = defaultdict(list)
         for batch in eval_dataloader:
             if random.random() > self.sampling_prob:
                 continue
@@ -61,19 +61,15 @@ class Evaluator:
                                 start_antecedent_labels=start_antecedents_indices,
                                 end_antecedent_labels=end_antecedents_indices,
                                 return_all_outputs=True)
-                loss = outputs[0]
-                entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
+                loss_dict = outputs[-1]
 
             if self.args.n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                entity_mention_loss, start_coref_loss, end_coref_loss = entity_mention_loss.mean(), start_coref_loss.mean(), end_coref_loss.mean()
+                loss_dict = {key: val.mean() for key, val in loss_dict.items()}
 
-            losses["loss"].append(loss)
-            losses["entity_mention_loss"].append(entity_mention_loss)
-            losses["start_coref_loss"].append(start_coref_loss)
-            losses["end_coref_loss"].append(end_coref_loss)
+            for key, val in loss_dict.items():
+                losses[key].append(val)
 
-            outputs = outputs[1:-3]
+            outputs = outputs[1:-1]
 
             batch_np = tuple(tensor.cpu().numpy() for tensor in batch)
             outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
@@ -108,11 +104,8 @@ class Evaluator:
         mention_precision, mentions_recall, mention_f1 = mention_evaluator.get_prf()
         prec, rec, f1 = coref_evaluator.get_prf()
 
-        results = [
-            ("eval loss", sum(losses["loss"]).item() / len(losses["loss"])),
-            ("eval entity_mention_loss", sum(losses["entity_mention_loss"]).item() / len(losses["entity_mention_loss"])),
-            ("eval start_coref_loss", sum(losses["start_coref_loss"]).item() / len(losses["start_coref_loss"])),
-            ("eval end_coref_loss", sum(losses["end_coref_loss"]).item() / len(losses["end_coref_loss"])),
+        results = [(key, sum(val) / len(val)) for key, val in losses.items()]
+        results += [
             ("post pruning mention precision", post_pruning_mention_precision),
             ("post pruning mention recall", post_pruning_mentions_recall),
             ("post pruning mention f1", post_pruning_mention_f1),

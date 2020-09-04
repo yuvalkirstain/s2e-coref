@@ -79,8 +79,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         mention_mask = self._get_mention_mask(weights)
         weights = weights * mention_mask
 
-        loss = self._compute_pos_neg_loss(weights, labels, mention_logits)
-        return loss
+        loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(weights, labels, mention_logits)
+        return loss, {"mention_joint_neg_loss": neg_loss, "mention_joint_pos_loss": pos_loss}
 
     def _calc_boundary_loss(self, boundary_entity_mention_labels, boundary_mention_logits, attention_mask):
         device = boundary_entity_mention_labels.device
@@ -94,19 +94,28 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         boundary_labels[:, 0] = 0.0  # Remove the padded mentions
 
         boundary_weights = attention_mask
-        loss = self._compute_pos_neg_loss(boundary_weights, boundary_labels, boundary_mention_logits)
-        return loss
+        loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(boundary_weights, boundary_labels,
+                                                                boundary_mention_logits)
+        return loss, {"neg_loss": neg_loss, "pos_loss": pos_loss}
 
     def _compute_seperate_entity_mention_loss(self, start_entity_mention_labels, end_entity_mention_labels,
                                               start_mention_logits, end_mention_logits, joint_mention_logits,
                                               attention_mask=None):
-        joint_loss = self._compute_joint_entity_mention_loss(start_entity_mention_labels, end_entity_mention_labels,
-                                                             joint_mention_logits,
-                                                             attention_mask)
-        start_loss = self._calc_boundary_loss(start_entity_mention_labels, start_mention_logits, attention_mask)
-        end_loss = self._calc_boundary_loss(end_entity_mention_labels, end_mention_logits, attention_mask)
+        joint_loss, (joint_neg_loss, joint_pos_loss) = self._compute_joint_entity_mention_loss(
+            start_entity_mention_labels, end_entity_mention_labels,
+            joint_mention_logits,
+            attention_mask)
+        start_loss, (start_neg_loss, start_pos_loss) = self._calc_boundary_loss(start_entity_mention_labels,
+                                                                                start_mention_logits, attention_mask)
+        end_loss, (end_neg_loss, end_pos_loss) = self._calc_boundary_loss(end_entity_mention_labels, end_mention_logits,
+                                                                          attention_mask)
         loss = (joint_loss + start_loss + end_loss) / 3
-        return loss
+        return loss, {"mention_start_neg_loss": start_neg_loss,
+                      "mention_start_pos_loss": start_pos_loss,
+                      "mention_end_neg_loss": end_neg_loss,
+                      "mention_end_pos_loss": end_pos_loss,
+                      "mention_joint_neg_loss": joint_neg_loss,
+                      "mention_joint_pos_loss": joint_pos_loss}
 
     def _prepare_antecedent_matrix(self, antecedent_labels):
         """
@@ -140,7 +149,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
 
         loss = neg_loss + pos_loss
-        return loss
+        return loss, (neg_loss, pos_loss)
 
     def _calc_pruned_mention_masks(self, mention_logits):
         batch_size, seq_len, _ = mention_logits.size()
@@ -223,10 +232,11 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
             loss = null_loss + non_null_loss
 
-        return loss
+        return loss, {"antecedent_non_null_loss": non_null_loss, "antecedent_null_loss": null_loss}
 
     def mask_antecedent_logits(self, antecedent_logits):
-        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(
+            diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
         antecedents_mask = torch.clamp(antecedents_mask, min=-10000.0, max=10000.0)
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
@@ -294,8 +304,9 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         if start_entity_mention_labels is not None and end_entity_mention_labels is not None \
                 and start_antecedent_labels is not None and end_antecedent_labels is not None:
+            loss_dict = {}
             if self.seperate_mention_loss:
-                entity_mention_loss = self._compute_seperate_entity_mention_loss(
+                entity_mention_loss, entity_losses = self._compute_seperate_entity_mention_loss(
                     start_entity_mention_labels=start_entity_mention_labels,
                     end_entity_mention_labels=end_entity_mention_labels,
                     start_mention_logits=start_mention_logits,
@@ -304,24 +315,35 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                     attention_mask=attention_mask
                 )
             else:
-                entity_mention_loss = self._compute_joint_entity_mention_loss(
+                entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
                     start_entity_mention_labels=start_entity_mention_labels,
                     end_entity_mention_labels=end_entity_mention_labels,
                     mention_logits=mention_logits,
                     attention_mask=attention_mask)
+            loss_dict.update(entity_losses)
             if self.prune_mention_for_antecedents:
                 start_mention_mask, end_mention_mask = self._calc_pruned_mention_masks(mention_logits)
             else:
                 start_mention_mask, end_mention_mask = None, None
-            start_coref_loss = self._compute_antecedent_loss(antecedent_labels=start_antecedent_labels,
+            start_coref_loss, start_antecedent_losses = self._compute_antecedent_loss(antecedent_labels=start_antecedent_labels,
                                                              antecedent_logits=start_coref_logits,
                                                              attention_mask=attention_mask,
                                                              mention_mask=start_mention_mask)
-            end_coref_loss = self._compute_antecedent_loss(antecedent_labels=end_antecedent_labels,
+            start_antecedent_losses = {"start_" + key: val for key, val in start_antecedent_losses.items()}
+            loss_dict.update(start_antecedent_losses)
+            end_coref_loss, end_antecedent_losses = self._compute_antecedent_loss(antecedent_labels=end_antecedent_labels,
                                                            antecedent_logits=end_coref_logits,
                                                            attention_mask=attention_mask,
                                                            mention_mask=end_mention_mask)
+            end_antecedent_losses = {"end_" + key: val for key, val in end_antecedent_losses.items()}
+            loss_dict.update(end_antecedent_losses)
             loss = entity_mention_loss + start_coref_loss + end_coref_loss
-            outputs = (loss,) + outputs + (entity_mention_loss, start_coref_loss, end_coref_loss)
+
+            loss_dict["entity_mention_loss"] = entity_mention_loss
+            loss_dict["start_coref_loss"] = start_coref_loss
+            loss_dict["end_coref_loss"] = end_coref_loss
+            loss_dict["loss"] = loss
+
+            outputs = (loss,) + outputs + (loss_dict,)
 
         return outputs
