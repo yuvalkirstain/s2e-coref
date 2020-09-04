@@ -192,9 +192,8 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     logger.info(f"\nloss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
-                    logger.info(f"entity_mention_loss step {global_step}: {entity_mention_loss}")
-                    logger.info(f"start_coref_loss step {global_step}: {start_coref_loss}")
-                    logger.info(f"end_coref_loss step {global_step}: {end_coref_loss}")
+                    for key, value in losses.items():
+                        logger.info(f"\n{key}: {value}")
 
                     logging_loss = tr_loss
 
