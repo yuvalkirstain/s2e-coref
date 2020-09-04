@@ -51,7 +51,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         {'params': model_decay, 'lr': args.learning_rate, 'weight_decay': args.weight_decay},
         {'params': model_no_decay, 'lr': args.learning_rate, 'weight_decay': 0.0},
         {'params': head_decay, 'lr': head_learning_rate, 'weight_decay': args.weight_decay},
-        {'params': head_decay, 'lr': head_learning_rate, 'weight_decay': 0.0}
+        {'params': head_no_decay, 'lr': head_learning_rate, 'weight_decay': 0.0}
     ]
     optimizer = AdamW(optimizer_grouped_parameters,
                       lr=args.learning_rate,
