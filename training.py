@@ -154,19 +154,18 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                             end_antecedent_labels=end_antecedents_indices,
                             return_all_outputs=False)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
-            entity_mention_loss, start_coref_loss, end_coref_loss = outputs[-3:]
+            losses = outputs[-1]
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                losses = {key: val.mean() for key, val in losses.items()}
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
             if loss > 1000 or str(loss.item()) == 'nan':
-                logger.info(f"\nglobal_step: {global_step},"
-                            f"loss: {loss}, "
-                            f"entity_mention_loss: {entity_mention_loss}, "
-                            f"start_coref_loss: {start_coref_loss},"
-                            f"end_coref_loss: {end_coref_loss}")
+                logger.info(f"\nglobal_step: {global_step}")
+                for key, value in losses.items():
+                    logger.info(f"\n{key}: {value}")
                 for example_input_ids in input_ids:
                     logger.info(tokenizer.convert_ids_to_tokens(example_input_ids)[:20])
                 log_batch_eval_results(outputs)
