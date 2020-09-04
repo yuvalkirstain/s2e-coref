@@ -34,14 +34,29 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Prepare optimizer and schedule (linear warmup and decay)
+    no_decay = ['bias', 'LayerNorm.weight']
     head_params = ['coref', 'mention', 'antecedent']
+
+    model_decay = [p for n, p in model.named_parameters() if
+                   not any(hp in n for hp in head_params) and not any(nd in n for nd in no_decay)]
+    model_no_decay = [p for n, p in model.named_parameters() if
+                      not any(hp in n for hp in head_params) and any(nd in n for nd in no_decay)]
+    head_decay = [p for n, p in model.named_parameters() if
+                  any(hp in n for hp in head_params) and not any(nd in n for nd in no_decay)]
+    head_no_decay = [p for n, p in model.named_parameters() if
+                     any(hp in n for hp in head_params) and any(nd in n for nd in no_decay)]
+
     head_learning_rate = args.head_learning_rate if args.head_learning_rate else args.learning_rate
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(hp in n for hp in head_params)]},
-        {'params': [p for n, p in model.named_parameters() if any(hp in n for hp in head_params)],
-         'lr': head_learning_rate}
+        {'params': model_decay, 'lr': args.learning_rate, 'weight_decay': args.weight_decay},
+        {'params': model_no_decay, 'lr': args.learning_rate, 'weight_decay': 0.0},
+        {'params': head_decay, 'lr': head_learning_rate, 'weight_decay': args.weight_decay},
+        {'params': head_decay, 'lr': head_learning_rate, 'weight_decay': 0.0}
     ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = AdamW(optimizer_grouped_parameters,
+                      lr=args.learning_rate,
+                      betas=(args.adam_beta1, args.adam_beta2),
+                      eps=args.adam_epsilon)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps,
                                                 num_training_steps=t_total)
 

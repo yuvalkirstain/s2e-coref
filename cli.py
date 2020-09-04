@@ -92,8 +92,13 @@ def parse_args():
                         type=int,
                         default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
+    parser.add_argument("--weight_decay", default=0.0, type=float,
+                        help="Weight deay if we apply some.")
+    parser.add_argument("--adam_beta1", default=0.9, type=float,
+                        help="Epsilon for Adam optimizer.")
+    parser.add_argument("--adam_beta2", default=0.999, type=float,
+                        help="Epsilon for Adam optimizer.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
-    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument(
         "--num_train_epochs", default=3.0, type=float, help="Total number of training epochs to perform."
     )
