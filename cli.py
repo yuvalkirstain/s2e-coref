@@ -149,6 +149,7 @@ def parse_args():
     parser.add_argument("--top_lambda", type=float, default=0.4)
     parser.add_argument("--prune_mention_for_antecedents", action="store_true")
     parser.add_argument("--not_normalize_antecedent_loss", action='store_true')
+    parser.add_argument("--only_joint_mention_logits", action='store_true')
 
     parser.add_argument("--use_mention_logits_for_antecedents", action="store_true")
     parser.add_argument("--use_mention_oracle", action="store_true")

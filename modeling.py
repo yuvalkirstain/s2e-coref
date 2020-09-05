@@ -27,7 +27,7 @@ class FullyConnectedLayer(Module):
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss=True):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -35,6 +35,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         self.seperate_mention_loss = seperate_mention_loss
         self.prune_mention_for_antecedents = prune_mention_for_antecedents
         self.normalize_antecedent_loss = normalize_antecedent_loss
+        self.only_joint_mention_logits = only_joint_mention_logits
         self.args = args
 
         if args.model_type == "longformer":
@@ -282,8 +283,11 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         temp = self.entity_mention_joint_classifier(start_mention_reps)  # [batch_size, seq_length]
         joint_mention_logits = torch.matmul(temp,
                                             end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+        if self.only_joint_mention_logits:
+            mention_logits = joint_mention_logits
+        else:
+            mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
 
-        mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
         mention_mask = self._get_mention_mask(mention_logits)
         mention_mask = (1.0 - mention_mask) * -10000.0
         mention_mask = torch.clamp(mention_mask, min=-10000.0, max=10000.0)

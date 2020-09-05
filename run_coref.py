@@ -109,6 +109,7 @@ def main():
                                                        seperate_mention_loss=args.seperate_mention_loss,
                                                        prune_mention_for_antecedents=args.prune_mention_for_antecedents,
                                                        normalize_antecedent_loss=not args.not_normalize_antecedent_loss,
+                                                       only_joint_mention_logits=args.only_joint_mention_logits,
                                                        args=args)
     # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)

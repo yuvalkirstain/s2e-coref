@@ -10,4 +10,5 @@ output_pos
 output
 /dataset/
 /checkpoint-*/
-one-epoch
+results
+graphs
