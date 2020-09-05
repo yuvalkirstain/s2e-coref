@@ -23,6 +23,7 @@ def main():
     args = parse_args()
     allowed_names = ["longformer", "roberta"]
     assert args.model_type in allowed_names
+    assert 0 <= args.pos_coeff <= 1
 
     transformers_logger = logging.getLogger("transformers")
     transformers_logger.setLevel(logging.ERROR)
@@ -110,6 +111,8 @@ def main():
                                                        prune_mention_for_antecedents=args.prune_mention_for_antecedents,
                                                        normalize_antecedent_loss=not args.not_normalize_antecedent_loss,
                                                        only_joint_mention_logits=args.only_joint_mention_logits,
+                                                       no_joint_mention_logits=args.no_joint_mention_logits,
+                                                       pos_coeff=args.pos_coeff,
                                                        args=args)
     # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)

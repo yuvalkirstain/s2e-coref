@@ -27,7 +27,7 @@ class FullyConnectedLayer(Module):
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -36,6 +36,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         self.prune_mention_for_antecedents = prune_mention_for_antecedents
         self.normalize_antecedent_loss = normalize_antecedent_loss
         self.only_joint_mention_logits = only_joint_mention_logits
+        self.no_joint_mention_logits = no_joint_mention_logits
+        self.pos_coeff = pos_coeff
         self.args = args
 
         if args.model_type == "longformer":
@@ -149,7 +151,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
         neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
 
-        loss = neg_loss + pos_loss
+        loss = (1 - self.pos_coeff) * neg_loss + self.pos_coeff * pos_loss
         return loss, (neg_loss, pos_loss)
 
     def _calc_pruned_mention_masks(self, mention_logits):
@@ -214,7 +216,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             denom_null = num_null_labels if self.normalize_antecedent_loss else batch_size
             null_loss = torch.sum(null_losses) / (denom_null + 1e-4)
 
-            loss = (non_null_loss + null_loss) / 2
+            loss = self.pos_coeff * non_null_loss + (1 - self.pos_coeff) * null_loss
         else:  # == bce
             weights = torch.ones_like(labels).tril()
             weights[:, 0, 0] = 1
@@ -231,7 +233,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             null_weights[:, :, 1:] = 0
             null_loss = self._compute_pos_neg_loss(null_weights, labels, antecedent_logits)
 
-            loss = null_loss + non_null_loss
+            loss = self.pos_coeff * non_null_loss + (1 - self.pos_coeff) * null_loss
 
         return loss, {"antecedent_non_null_loss": non_null_loss, "antecedent_null_loss": null_loss}
 
@@ -285,6 +287,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
                                             end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
         if self.only_joint_mention_logits:
             mention_logits = joint_mention_logits
+        elif self.no_joint_mention_logits:
+            mention_logits = start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
         else:
             mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
 

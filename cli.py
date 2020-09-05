@@ -147,9 +147,13 @@ def parse_args():
     parser.add_argument("--max_span_length", type=int, required=False, default=30)
     parser.add_argument("--seperate_mention_loss", action='store_true')
     parser.add_argument("--top_lambda", type=float, default=0.4)
+    parser.add_argument("--pos_coeff", type=float, default=0.5, help="coefficient to interpolate positive/non_null loss and negative/null loss")
+
     parser.add_argument("--prune_mention_for_antecedents", action="store_true")
     parser.add_argument("--not_normalize_antecedent_loss", action='store_true')
     parser.add_argument("--only_joint_mention_logits", action='store_true')
+    parser.add_argument("--no_joint_mention_logits", action='store_true')
+
 
     parser.add_argument("--use_mention_logits_for_antecedents", action="store_true")
     parser.add_argument("--use_mention_oracle", action="store_true")
