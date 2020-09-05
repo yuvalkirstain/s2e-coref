@@ -1,27 +1,30 @@
 import torch
 from torch import nn
-from torch.nn import Module, Linear, LayerNorm
+from torch.nn import Module, Linear, LayerNorm, Dropout
 from transformers import BertPreTrainedModel, LongformerModel, RobertaModel, RobertaConfig
 from transformers.modeling_bert import ACT2FN
 
 
 class FullyConnectedLayer(Module):
     # TODO: many layers
-    def __init__(self, config, input_dim, output_dim):
+    def __init__(self, config, input_dim, output_dim, dropout_prob):
         super(FullyConnectedLayer, self).__init__()
 
         self.input_dim = input_dim
         self.output_dim = output_dim
+        self.dropout_prob = dropout_prob
 
         self.dense = Linear(self.input_dim, self.output_dim)
         self.layer_norm = LayerNorm(self.output_dim, eps=config.layer_norm_eps)
         self.activation_func = ACT2FN[config.hidden_act]
+        self.dropout = Dropout(self.dropout_prob)
 
     def forward(self, inputs):
         temp = inputs
         temp = self.dense(temp)
         temp = self.activation_func(temp)
         temp = self.layer_norm(temp)
+        temp = self.dropout(temp)
         return temp
 
 
@@ -45,10 +48,10 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         elif args.model_type == "roberta":
             self.roberta = RobertaModel(config)
 
-        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
-        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
-        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
-        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size)
+        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
 
         self.entity_mention_start_classifier = nn.Linear(config.hidden_size, 1)  # In paper w_s
         self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e

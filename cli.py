@@ -87,7 +87,7 @@ def parse_args():
     )
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--head_learning_rate", default=0.0, type=float, help="The initial learning rate for Adam.")
-    parser.add_argument("--dropout_prob", default=0.1, type=float)
+    parser.add_argument("--dropout_prob", default=0.3, type=float)
     parser.add_argument("--gradient_accumulation_steps",
                         type=int,
                         default=1,
