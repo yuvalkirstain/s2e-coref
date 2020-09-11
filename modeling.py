@@ -430,10 +430,8 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         span_starts = sorted_topk_1d_indices // seq_length  # [batch_size, max_k]
         span_ends = sorted_topk_1d_indices % seq_length  # [batch_size, max_k]
 
-        new_mention_logits = torch.gather(mention_logits, dim=1,
-                                          index=span_starts.unsqueeze(2).expand(batch_size, max_k, seq_length))
-        new_mention_logits = torch.gather(new_mention_logits, dim=2,
-                                          index=span_ends.unsqueeze(1).expand(batch_size, max_k, max_k))
+        new_mention_logits = mention_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k),
+                                            span_starts, span_ends]  # # [batch_size, max_k]
 
         return span_starts, span_ends, span_mask, new_mention_logits
 
@@ -526,6 +524,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, max_k, dim]
         end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
+        new_mention_logits = new_mention_logits.unsqueeze(-1) + new_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         coref_logits = new_mention_logits + start_coref_logits + end_coref_logits  # [batch_size, max_k, max_k]
         coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
 
