@@ -358,3 +358,181 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             outputs = (loss,) + outputs + (loss_dict,)
 
         return outputs
+
+
+class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
+    def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
+        self.max_span_length = max_span_length
+        self.top_lambda = args.top_lambda
+        # self.seperate_mention_loss = seperate_mention_loss
+        # self.prune_mention_for_antecedents = prune_mention_for_antecedents
+        # self.normalize_antecedent_loss = normalize_antecedent_loss
+        self.only_joint_mention_logits = only_joint_mention_logits
+        self.no_joint_mention_logits = no_joint_mention_logits
+        # self.pos_coeff = pos_coeff
+        self.args = args
+
+        if args.model_type == "longformer":
+            self.longformer = LongformerModel(config)
+        elif args.model_type == "roberta":
+            self.roberta = RobertaModel(config)
+
+        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+
+        self.entity_mention_start_classifier = nn.Linear(config.hidden_size, 1)  # In paper w_s
+        self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e
+        self.entity_mention_joint_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # M
+
+        self.antecedent_start_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # S
+        self.antecedent_end_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # E
+
+        self.init_weights()
+
+    def _get_encoder(self):
+        if self.args.model_type == "longformer":
+            return self.longformer
+        elif self.args.model_type == "roberta":
+            return self.roberta
+
+        raise ValueError("Unsupported model type")
+
+    def _get_span_mask(self, batch_size, k, max_k):
+        size = (batch_size, max_k)
+        idx = torch.arange(max_k).unsqueeze(0).expand(size)
+        len_expanded = k.unsqueeze(1).expand(size)
+        return (idx < len_expanded).int()
+
+    def _prune_top_lambda_spans(self, mention_logits, attention_mask):
+        """
+        :param mention_logits: Shape [batch_size, seq_length, seq_length]
+        :param attention_mask: [batch_size, seq_length]
+        :param top_lambda:
+        :return:
+        """
+        batch_size, seq_length, _ = mention_logits.size()
+        actual_seq_lengths = torch.sum(attention_mask, dim=-1)  # [batch_size]
+
+        k = (actual_seq_lengths * self.top_lambda).int()  # [batch_size]
+        max_k = int(torch.max(k))  # This is the k for the largest input in the batch, we will need to pad
+
+        topk_1d_indices = torch.topk(mention_logits.view(batch_size, -1), dim=-1, k=max_k).indices  # [batch_size, max_k]
+        span_mask = self._get_span_mask(batch_size, k, max_k)
+        topk_1d_indices = topk_1d_indices + (1 - span_mask) * (seq_length ^ 2 - 1) # We take different k for each example
+        sorted_topk_1d_indices = torch.sort(topk_1d_indices, dim=-1)  # [batch_size, max_k]
+
+        span_starts = sorted_topk_1d_indices // seq_length  # [batch_size, max_k]
+        span_ends = sorted_topk_1d_indices % seq_length  # [batch_size, max_k]
+
+        new_mention_logits = torch.gather(mention_logits, dim=1,
+                                          index=span_starts.unsqueeze(2).expand(batch_size, max_k, seq_length))
+        new_mention_logits = torch.gather(new_mention_logits, dim=2,
+                                          index=span_ends.unsqueeze(1).expand(batch_size, max_k, max_k))
+
+        return span_starts, span_ends, span_mask, new_mention_logits
+
+    def _mask_antecedent_logits(self, antecedent_logits, span_mask):
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=1)  # [batch_size, k, k]
+        antecedents_mask[:, 0, 0] = 0
+        antecedents_mask = (antecedents_mask | (1 - span_mask.unsqueeze(-1)))
+        antecedents_mask = (antecedents_mask | (1 - span_mask.unsqueeze(-2)))
+
+        antecedents_mask = torch.clamp(antecedents_mask, min=-10000.0, max=10000.0)
+        antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
+        return antecedent_logits
+
+    def _get_cluster_labels_after_pruning(self, span_starts, span_ends, clusters):
+        """
+        :param span_starts: [batch_size, max_k]
+        :param span_ends: [batch_size, max_k]
+        :param clusters:
+        :return: [batch_size, max_k, max_k]
+        """
+        batch_size, max_k = span_starts.size()
+        new_cluster_labels = torch.zeros((batch_size, max_k, max_k), device=span_starts.device)
+
+        clusters_cpu = clusters.cpu().numpy()
+
+    def _get_marginal_log_likelihood_loss(self, coref_logits, cluster_labels_after_pruning, span_mask):
+        """
+        :param coref_logits: [batch_size, max_k, max_k]
+        :param cluster_labels_after_pruning: [batch_size, max_k, max_k]
+        :param span_mask: [batch_size, max_k]
+        :return:
+        """
+        gold_coref_logits = coref_logits + ((1.0 - cluster_labels_after_pruning) * -10000.0)
+        gold_coref_logits = torch.clamp(gold_coref_logits, min=-10000.0, max=10000.0)
+
+        gold_log_sum_exp = torch.logsumexp(gold_coref_logits, dim=-1)  # [batch_size, max_k]
+        all_log_sum_exp = torch.logsumexp(coref_logits, dim=-1)  # [batch_size, max_k]
+
+        gold_log_probs = gold_log_sum_exp - all_log_sum_exp
+        losses = -gold_log_probs
+        losses = losses * span_mask
+        per_example_loss = torch.sum(losses, dim=-1)  # [batch_size]
+
+        return per_example_loss
+
+
+    def forward(self, input_ids, attention_mask=None, gold_clusters=None, return_all_outputs=False):
+        encoder = self._get_encoder()
+        outputs = encoder(input_ids, attention_mask=attention_mask)
+        sequence_output = outputs[0]
+
+        # Compute representations
+        start_mention_reps = self.start_mention_mlp(sequence_output)
+        end_mention_reps = self.end_mention_mlp(sequence_output)
+        start_coref_reps = self.start_coref_mlp(sequence_output)
+        end_coref_reps = self.end_coref_mlp(sequence_output)
+
+        # Entity mention scores
+        start_mention_logits = self.entity_mention_start_classifier(start_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+        end_mention_logits = self.entity_mention_end_classifier(end_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+
+        temp = self.entity_mention_joint_classifier(start_mention_reps)  # [batch_size, seq_length]
+        joint_mention_logits = torch.matmul(temp,
+                                            end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+        if self.only_joint_mention_logits:
+            mention_logits = joint_mention_logits
+        elif self.no_joint_mention_logits:
+            mention_logits = start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
+        else:
+            mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
+
+        mention_mask = self._get_mention_mask(mention_logits)
+        mention_mask = (1.0 - mention_mask) * -10000.0
+        mention_mask = torch.clamp(mention_mask, min=-10000.0, max=10000.0)
+        mention_logits = mention_logits + mention_mask
+
+        span_starts, span_ends, span_mask, new_mention_logits = \
+            self._prune_top_lambda_spans(mention_logits, attention_mask)
+
+        batch_size,  _, dim = start_coref_reps.size()
+        max_k = span_starts.size(-1)
+        size = (batch_size, max_k, dim)
+
+        start_coref_reps = torch.gather(start_coref_reps, dim=1, index=span_starts.unsqueeze(-1).expand(size))
+        end_coref_reps = torch.gather(end_coref_reps, dim=1, index=span_ends.unsqueeze(-1).expand(size))
+        # Antecedent scores
+        temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, max_k, dim]
+        start_coref_logits = torch.matmul(temp,
+                                          start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+        temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, max_k, dim]
+        end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+
+        coref_logits = new_mention_logits + start_coref_logits + end_coref_logits  # [batch_size, max_k, max_k]
+        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
+
+        if gold_clusters is not None:
+            labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
+            loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
+
+            outputs = (loss, ) + outputs
+
+        return outputs
