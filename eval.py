@@ -60,6 +60,7 @@ class Evaluator:
                                 end_entity_mention_labels=end_entity_mentions_indices,
                                 start_antecedent_labels=start_antecedents_indices,
                                 end_antecedent_labels=end_antecedents_indices,
+                                gold_clusters=gold_clusters,
                                 return_all_outputs=True)
                 loss_dict = outputs[-1]
 

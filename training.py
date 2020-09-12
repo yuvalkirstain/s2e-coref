@@ -152,17 +152,19 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                             end_entity_mention_labels=end_entity_mentions_indices,
                             start_antecedent_labels=start_antecedents_indices,
                             end_antecedent_labels=end_antecedents_indices,
+                            gold_clusters=gold_clusters,
                             return_all_outputs=False)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             losses = outputs[-1]
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                losses = {key: val.mean() for key, val in losses.items()}
+                if not args.end_to_end:
+                    losses = {key: val.mean() for key, val in losses.items()}
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            if loss > 1000 or str(loss.item()) == 'nan':
+            if (loss > 1000 or str(loss.item()) == 'nan') and not args.end_to_end:
                 logger.info(f"\nglobal_step: {global_step}")
                 for key, value in losses.items():
                     logger.info(f"\n{key}: {value}")
@@ -192,8 +194,9 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     logger.info(f"\nloss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
-                    for key, value in losses.items():
-                        logger.info(f"\n{key}: {value}")
+                    if not args.end_to_end:
+                        for key, value in losses.items():
+                            logger.info(f"\n{key}: {value}")
 
                     logging_loss = tr_loss
 
