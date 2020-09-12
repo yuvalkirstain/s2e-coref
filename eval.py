@@ -100,7 +100,8 @@ class Evaluator:
                     max_antecedents = np.argmax(coref_logits, axis=1).tolist()
                     mention_to_antecedent = {((start, end), (starts[max_antecedent], ends[max_antecedent])) for start, end, max_antecedent in zip(starts, ends, max_antecedents) if max_antecedent < len(starts)}
 
-                    predicted_clusters, candidate_mentions = extract_clusters_for_decode(mention_to_antecedent)
+                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
+                    candidate_mentions = list(zip(starts, ends))
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())
                 post_pruning_mention_evaluator.update(candidate_mentions, gold_mentions)
