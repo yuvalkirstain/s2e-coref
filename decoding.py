@@ -2,17 +2,20 @@ from collections import defaultdict
 
 import numpy as np
 
+from utils import extract_clusters_for_decode
+
 NULL_SPAN_IDX = 0
 
 
 class Decoder:
     def __init__(self, use_mention_logits_for_antecedents, use_mention_oracle, gold_mentions, gold_clusters,
-                 use_crossing_mentions_pruning):
+                 use_crossing_mentions_pruning, only_top_k):
         self.use_mention_logits_for_antecedents = use_mention_logits_for_antecedents
         self.use_mention_oracle = use_mention_oracle
         self.gold_mentions = sorted(gold_mentions)
         self.gold_clusters = gold_clusters
         self.use_crossing_mentions_pruning = use_crossing_mentions_pruning
+        self.only_top_k = only_top_k
 
     def cluster_mentions(self, mention_logits, start_coref_logits, end_coref_logits, attention_mask, top_lambda=0.4):
         top_k = int(np.sum(attention_mask) * top_lambda)
@@ -21,21 +24,7 @@ class Decoder:
                                                                 mention_logits,
                                                                 start_coref_logits,
                                                                 end_coref_logits)
-        mention_to_cluster = {}
-        clusters = []
-        for mention, antecedent in mention_to_antecedent:
-            if antecedent in mention_to_cluster:
-                cluster_idx = mention_to_cluster[antecedent]
-                clusters[cluster_idx].append(mention)
-                mention_to_cluster[mention] = cluster_idx
-
-            else:
-                cluster_idx = len(clusters)
-                mention_to_cluster[mention] = cluster_idx
-                mention_to_cluster[antecedent] = cluster_idx
-                clusters.append([antecedent, mention])
-
-        return [tuple(cluster) for cluster in clusters], candidate_mentions
+        return extract_clusters_for_decode(mention_to_antecedent)
 
     def prune_top_k(self, mention_logits, top_k):
         """
@@ -57,6 +46,11 @@ class Decoder:
             candidate_mentions = sorted(self.filter_crossing_mentions(candidate_mentions))
         elif self.use_mention_oracle:
             candidate_mentions = sorted(self.gold_mentions)
+        elif self.only_top_k:
+            candidate_starts, candidate_ends = np.unravel_index(np.argsort(-mention_logits, axis=None),
+                                                                mention_logits.shape)
+            candidate_mentions = list(zip((candidate_starts[:top_k]).tolist(),
+                                          (candidate_ends[:top_k]).tolist()))
         else:
             candidate_starts, candidate_ends = np.where(mention_logits > 4)
             candidate_mentions = sorted(zip(candidate_starts.tolist(), candidate_ends.tolist()))
@@ -65,7 +59,6 @@ class Decoder:
                                                                     mention_logits.shape)
                 candidate_mentions = list(zip((candidate_starts[:top_k]).tolist(),
                                               (candidate_ends[:top_k]).tolist()))
-                candidate_mentions = list(filter(lambda x: mention_logits[x[0], x[1]] > 4, candidate_mentions))
         return candidate_mentions
 
     def find_mention_to_antecedent(self, candidate_spans, mention_logits, start_coref_logits, end_coref_logits):

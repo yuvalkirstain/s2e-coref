@@ -164,6 +164,7 @@ def parse_args():
     parser.add_argument("--results_dir", type=str, default=None)
 
     parser.add_argument("--end_to_end", action="store_true")
+    parser.add_argument("--only_top_k", action="store_true")
 
     args = parser.parse_args()
 

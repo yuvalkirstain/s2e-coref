@@ -447,6 +447,20 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         return antecedent_logits
 
+    def _compute_pos_neg_loss(self, weights, labels, logits):
+        pos_weights = weights * labels
+        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_pos_loss = per_example_pos_loss_fct(logits, labels)
+        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
+
+        neg_weights = weights * (1 - labels)
+        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
+        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
+
+        loss = 0.5 * neg_loss + 0.5 * pos_loss
+        return loss, (neg_loss, pos_loss)
+
     def _get_cluster_labels_after_pruning(self, span_starts, span_ends, all_clusters):
         """
         :param span_starts: [batch_size, max_k]
@@ -475,7 +489,31 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         return new_cluster_labels
 
 
+    def _compute_joint_entity_mention_loss(self, start_entity_mention_labels, end_entity_mention_labels, mention_logits,
+                                           attention_mask=None):
+        """
+        :param start_entity_mention_labels: [batch_size, num_mentions]
+        :param end_entity_mention_labels: [batch_size, num_mentions]
+        :param mention_logits: [batch_size, seq_length, seq_length]
+        :return:
+        """
+        device = start_entity_mention_labels.device
+        batch_size, seq_length, _ = mention_logits.size()
+        num_mentions = start_entity_mention_labels.size(-1)
 
+        # We now take the index tensors and turn them into sparse tensors
+        labels = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
+        batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
+        labels[
+            batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
+        labels[:, 0, 0] = 0.0  # Remove the padded mentions
+
+        weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
+        mention_mask = self._get_mention_mask(weights)
+        weights = weights * mention_mask
+
+        loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(weights, labels, mention_logits)
+        return loss, {"mention_joint_neg_loss": neg_loss, "mention_joint_pos_loss": pos_loss}
 
     def _get_marginal_log_likelihood_loss(self, coref_logits, cluster_labels_after_pruning, span_mask):
         """
@@ -558,12 +596,22 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         new_mention_logits = new_mention_logits.unsqueeze(-1) + new_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         coref_logits = new_mention_logits + start_coref_logits + end_coref_logits  # [batch_size, max_k, max_k]
         coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
+
         # adding zero logits for null span
         coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1) # [batch_size, max_k, max_k + 1]
+        outputs = (span_starts, span_ends, coref_logits)
         if gold_clusters is not None:
+            losses = {}
+            entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
+                start_entity_mention_labels=start_entity_mention_labels,
+                end_entity_mention_labels=end_entity_mention_labels,
+                mention_logits=mention_logits,
+                attention_mask=attention_mask)
+            losses.update(entity_losses)
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
-            loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
-
-            outputs = (loss, ) + outputs
+            end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
+            loss = end_to_end_loss + entity_mention_loss
+            losses.update({"loss": loss})
+            outputs = (loss,) + outputs + (losses,)
 
         return outputs

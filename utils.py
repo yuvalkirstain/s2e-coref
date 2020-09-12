@@ -50,3 +50,19 @@ def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
     return mention_to_gold
 
 
+def extract_clusters_for_decode(mention_to_antecedent):
+    mention_to_cluster = {}
+    clusters = []
+    for mention, antecedent in mention_to_antecedent:
+        if antecedent in mention_to_cluster:
+            cluster_idx = mention_to_cluster[antecedent]
+            clusters[cluster_idx].append(mention)
+            mention_to_cluster[mention] = cluster_idx
+
+        else:
+            cluster_idx = len(clusters)
+            mention_to_cluster[mention] = cluster_idx
+            mention_to_cluster[antecedent] = cluster_idx
+            clusters.append([antecedent, mention])
+    clusters = [tuple(cluster) for cluster in clusters]
+    return clusters, mention_to_cluster

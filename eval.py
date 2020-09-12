@@ -13,7 +13,7 @@ from data import get_dataset
 from decoding import Decoder
 from metrics import CorefEvaluator, MentionEvaluator
 from utils import write_examples, EVAL_DATA_FILE_NAME, EvalDataPoint, extract_clusters, \
-    extract_mentions_to_predicted_clusters_from_clusters
+    extract_mentions_to_predicted_clusters_from_clusters, extract_clusters_for_decode
 
 logger = logging.getLogger(__name__)
 
@@ -75,27 +75,34 @@ class Evaluator:
             batch_np = tuple(tensor.cpu().numpy() for tensor in batch)
             outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
             for output in zip(*(batch_np + outputs_np)):
-                data_point = EvalDataPoint(*output)
-
-                gold_clusters = extract_clusters(data_point.gold_clusters)
+                gold_clusters = output[6]
+                gold_clusters = extract_clusters(gold_clusters)
                 mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
                 gold_mentions = list(mention_to_gold_clusters.keys())
 
-                decoder = Decoder(use_mention_logits_for_antecedents=self.args.use_mention_logits_for_antecedents,
-                                  use_mention_oracle=self.args.use_mention_oracle,
-                                  gold_mentions=gold_mentions,
-                                  gold_clusters=gold_clusters,
-                                  use_crossing_mentions_pruning=self.args.use_crossing_mentions_pruning)
+                if not self.args.end_to_end:
+                    data_point = EvalDataPoint(*output)
 
-                predicted_clusters, candidate_mentions = decoder.cluster_mentions(data_point.mention_logits,
-                                                                                  data_point.start_coref_logits,
-                                                                                  data_point.end_coref_logits,
-                                                                                  data_point.attention_mask,
-                                                                                  self.args.top_lambda)
+                    decoder = Decoder(use_mention_logits_for_antecedents=self.args.use_mention_logits_for_antecedents,
+                                      use_mention_oracle=self.args.use_mention_oracle,
+                                      gold_mentions=gold_mentions,
+                                      gold_clusters=gold_clusters,
+                                      use_crossing_mentions_pruning=self.args.use_crossing_mentions_pruning,
+                                      only_top_k=self.args.only_top_k)
 
+                    predicted_clusters, candidate_mentions = decoder.cluster_mentions(data_point.mention_logits,
+                                                                                      data_point.start_coref_logits,
+                                                                                      data_point.end_coref_logits,
+                                                                                      data_point.attention_mask,
+                                                                                      self.args.top_lambda)
+                else:
+                    starts, ends, coref_logits = output[-3:]
+                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
+                    mention_to_antecedent = {((start, end), (starts[max_antecedent], ends[max_antecedent])) for start, end, max_antecedent in zip(starts, ends, max_antecedents) if max_antecedent < len(starts)}
+
+                    predicted_clusters, candidate_mentions = extract_clusters_for_decode(mention_to_antecedent)
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())
-
                 post_pruning_mention_evaluator.update(candidate_mentions, gold_mentions)
                 mention_evaluator.update(predicted_mentions, gold_mentions)
                 coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters,
