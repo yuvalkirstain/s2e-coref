@@ -5,6 +5,7 @@ from transformers import BertPreTrainedModel, LongformerModel, RobertaModel, Rob
 from transformers.modeling_bert import ACT2FN
 
 from utils import extract_clusters, extract_mentions_to_predicted_clusters_from_clusters
+from data import PAD_ID_FOR_COREF
 
 
 class FullyConnectedLayer(Module):
@@ -81,7 +82,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
         labels[
             batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
-        labels[:, 0, 0] = 0.0  # Remove the padded mentions
+        labels[:, PAD_ID_FOR_COREF, PAD_ID_FOR_COREF] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
         mention_mask = self._get_mention_mask(weights)
@@ -503,8 +504,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
         labels[
             batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
-        labels[:, 0, 0] = 0.0  # Remove the padded mentions
-
+        labels[:, PAD_ID_FOR_COREF, PAD_ID_FOR_COREF] = 0.0  # Remove the padded mentions
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
         mention_mask = self._get_mention_mask(weights)
         weights = weights * mention_mask
