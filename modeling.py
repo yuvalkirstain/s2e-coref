@@ -528,7 +528,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         gold_log_probs = gold_log_sum_exp - all_log_sum_exp
         losses = -gold_log_probs
         losses = losses * span_mask
-        per_example_loss = torch.sum(losses, dim=-1)  # [batch_size]
+        per_example_loss = torch.sum(losses, dim=-1) / losses.size(-1)  # [batch_size]
         loss = per_example_loss.mean()
         return loss
 
