@@ -73,7 +73,7 @@ class Evaluator:
             outputs = outputs[1:-1]
 
             batch_np = tuple(tensor.cpu().numpy() for tensor in batch)
-            outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs[:3])
+            outputs_np = tuple(tensor.cpu().numpy() for tensor in outputs)
             for output in zip(*(batch_np + outputs_np)):
                 gold_clusters = output[6]
                 gold_clusters = extract_clusters(gold_clusters)
@@ -96,7 +96,8 @@ class Evaluator:
                                                                                       data_point.attention_mask,
                                                                                       self.args.top_lambda)
                 else:
-                    starts, ends, coref_logits = output[-3:]
+                    starts, ends, coref_logits, mention_logits = output[-4:]
+
                     max_antecedents = np.argmax(coref_logits, axis=1).tolist()
                     mention_to_antecedent = {((start, end), (starts[max_antecedent], ends[max_antecedent])) for start, end, max_antecedent in zip(starts, ends, max_antecedents) if max_antecedent < len(starts)}
 

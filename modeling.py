@@ -311,9 +311,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
         end_coref_logits = self.mask_antecedent_logits(end_coref_logits)
 
-        outputs = outputs[2:]
         if return_all_outputs:
-            outputs = (mention_logits, start_coref_logits, end_coref_logits) + outputs
+            outputs = (mention_logits, start_coref_logits, end_coref_logits)
 
         if start_entity_mention_labels is not None and end_entity_mention_labels is not None \
                 and start_antecedent_labels is not None and end_antecedent_labels is not None:
@@ -599,7 +598,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         # adding zero logits for null span
         coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1) # [batch_size, max_k, max_k + 1]
-        outputs = (span_starts, span_ends, coref_logits)
+        outputs = (span_starts, span_ends, coref_logits, mention_logits)
         if gold_clusters is not None:
             losses = {}
             entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
