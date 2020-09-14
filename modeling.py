@@ -447,15 +447,14 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         return antecedent_logits
 
     def _compute_pos_neg_loss(self, weights, labels, logits):
+        loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        all_loss = loss_fct(logits, labels)
+
         pos_weights = weights * labels
-        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_pos_loss = per_example_pos_loss_fct(logits, labels)
-        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
+        pos_loss = (all_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
 
         neg_weights = weights * (1 - labels)
-        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
-        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
+        neg_loss = (all_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
 
         loss = 0.5 * neg_loss + 0.5 * pos_loss
         return loss, (neg_loss, pos_loss)
