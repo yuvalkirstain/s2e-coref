@@ -80,8 +80,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         # We now take the index tensors and turn them into sparse tensors
         labels = torch.zeros(size=(batch_size, seq_length, seq_length), device=device)
         batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
-        labels[
-            batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
+        labels[batch_temp, start_entity_mention_labels, end_entity_mention_labels] = 1.0  # [batch_size, seq_length, seq_length]
         labels[:, PAD_ID_FOR_COREF, PAD_ID_FOR_COREF] = 0.0  # Remove the padded mentions
 
         weights = (attention_mask.unsqueeze(-1) & attention_mask.unsqueeze(-2))
@@ -147,15 +146,14 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         return labels
 
     def _compute_pos_neg_loss(self, weights, labels, logits):
+        loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        all_loss = loss_fct(logits, labels)
+
         pos_weights = weights * labels
-        per_example_pos_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_pos_loss = per_example_pos_loss_fct(logits, labels)
-        pos_loss = (per_example_pos_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
+        pos_loss = (all_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
 
         neg_weights = weights * (1 - labels)
-        per_example_neg_loss_fct = nn.BCEWithLogitsLoss(reduction='none')
-        per_example_neg_loss = per_example_neg_loss_fct(logits, labels)
-        neg_loss = (per_example_neg_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
+        neg_loss = (all_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
 
         loss = (1 - self.pos_coeff) * neg_loss + self.pos_coeff * pos_loss
         return loss, (neg_loss, pos_loss)
@@ -283,14 +281,11 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         end_coref_reps = self.end_coref_mlp(sequence_output)
 
         # Entity mention scores
-        start_mention_logits = self.entity_mention_start_classifier(start_mention_reps).squeeze(
-            -1)  # [batch_size, seq_length]
-        end_mention_logits = self.entity_mention_end_classifier(end_mention_reps).squeeze(
-            -1)  # [batch_size, seq_length]
+        start_mention_logits = self.entity_mention_start_classifier(start_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+        end_mention_logits = self.entity_mention_end_classifier(end_mention_reps).squeeze(-1)  # [batch_size, seq_length]
 
         temp = self.entity_mention_joint_classifier(start_mention_reps)  # [batch_size, seq_length]
-        joint_mention_logits = torch.matmul(temp,
-                                            end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+        joint_mention_logits = torch.matmul(temp, end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
         if self.only_joint_mention_logits:
             mention_logits = joint_mention_logits
         elif self.no_joint_mention_logits:
@@ -305,8 +300,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         # Antecedent scores
         temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, seq_length, dim]
-        start_coref_logits = torch.matmul(temp,
-                                          start_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+        start_coref_logits = torch.matmul(temp, start_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
         start_coref_logits = self.mask_antecedent_logits(start_coref_logits)
         temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, seq_length, dim]
         end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
