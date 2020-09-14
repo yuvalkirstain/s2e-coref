@@ -242,11 +242,10 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         return loss, {"antecedent_non_null_loss": non_null_loss, "antecedent_null_loss": null_loss}
 
     def mask_antecedent_logits(self, antecedent_logits):
-        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(
-            diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
-        antecedents_mask = torch.clamp(antecedents_mask, min=-10000.0, max=10000.0)
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=1) * -10000.0  # [batch_size, seq_length, seq_length]
         antecedents_mask[:, 0, 0] = 0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
+        antecedent_logits = torch.clamp(antecedent_logits, min=-10000.0, max=10000.0)
         return antecedent_logits
 
     def _get_mention_mask(self, mention_logits_or_weights):
@@ -295,8 +294,8 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
         mention_mask = self._get_mention_mask(mention_logits)
         mention_mask = (1.0 - mention_mask) * -10000.0
-        mention_mask = torch.clamp(mention_mask, min=-10000.0, max=10000.0)
         mention_logits = mention_logits + mention_mask
+        mention_logits = torch.clamp(mention_logits, min=-10000.0, max=10000.0)
 
         # Antecedent scores
         temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, seq_length, dim]
@@ -566,8 +565,8 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         mention_mask = self._get_mention_mask(mention_logits)
         mention_mask = (1.0 - mention_mask) * -10000.0
-        mention_mask = torch.clamp(mention_mask, min=-10000.0, max=10000.0)
         mention_logits = mention_logits + mention_mask
+        mention_logits = torch.clamp(mention_logits, min=-10000.0, max=10000.0)
 
         span_starts, span_ends, span_mask, new_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
 
