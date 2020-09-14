@@ -438,7 +438,6 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
     def _mask_antecedent_logits(self, antecedent_logits, span_mask):
         antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=0)  # [batch_size, k, k]
-        antecedents_mask[:, 0, 0] = 0
         antecedents_mask = (antecedents_mask.bool() | (1 - span_mask).unsqueeze(-1).bool()).int()
         antecedents_mask = antecedents_mask * -10000.0
         antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
