@@ -360,7 +360,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
 class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff, independent_mention_loss):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -372,6 +372,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.only_joint_mention_logits = only_joint_mention_logits
         self.no_joint_mention_logits = no_joint_mention_logits
         # self.pos_coeff = pos_coeff
+        self.independent_mention_loss = independent_mention_loss
         self.args = args
 
         if args.model_type == "longformer":
@@ -595,12 +596,13 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         outputs = (span_starts, span_ends, coref_logits, mention_logits)
         if gold_clusters is not None:
             losses = {}
-            entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
-                start_entity_mention_labels=start_entity_mention_labels,
-                end_entity_mention_labels=end_entity_mention_labels,
-                mention_logits=mention_logits,
-                attention_mask=attention_mask)
-            losses.update(entity_losses)
+            if self.independent_mention_loss:
+                entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
+                    start_entity_mention_labels=start_entity_mention_labels,
+                    end_entity_mention_labels=end_entity_mention_labels,
+                    mention_logits=mention_logits,
+                    attention_mask=attention_mask)
+                losses.update(entity_losses)
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
             end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
             loss = end_to_end_loss + entity_mention_loss
