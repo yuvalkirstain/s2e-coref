@@ -159,12 +159,11 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                if not args.end_to_end:
-                    losses = {key: val.mean() for key, val in losses.items()}
+                losses = {key: val.mean() for key, val in losses.items()}
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            if (loss > 1000 or str(loss.item()) == 'nan') and not args.end_to_end:
+            if (loss > 1000 or str(loss.item()) == 'nan'):
                 logger.info(f"\nglobal_step: {global_step}")
                 for key, value in losses.items():
                     logger.info(f"\n{key}: {value}")
@@ -194,9 +193,8 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     logger.info(f"\nloss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
-                    if not args.end_to_end:
-                        for key, value in losses.items():
-                            logger.info(f"\n{key}: {value}")
+                    for key, value in losses.items():
+                        logger.info(f"\n{key}: {value}")
 
                     logging_loss = tr_loss
 
