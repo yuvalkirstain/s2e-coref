@@ -128,6 +128,7 @@ def main():
                                                            only_joint_mention_logits=args.only_joint_mention_logits,
                                                            no_joint_mention_logits=args.no_joint_mention_logits,
                                                            pos_coeff=args.pos_coeff,
+                                                           zero_null_logits=args.zero_null_logits,
                                                            args=args)
         # model.resize_token_embeddings(len(tokenizer))
     model.to(args.device)

@@ -166,6 +166,8 @@ def parse_args():
     parser.add_argument("--end_to_end", action="store_true")
     parser.add_argument("--only_top_k", action="store_true")
 
+    parser.add_argument("--zero_null_logits", action="store_true")
+
     args = parser.parse_args()
 
     assert (args.experiment_name is not None and args.results_dir is not None) or (args.results_dir is None and args.experiment_name is None)

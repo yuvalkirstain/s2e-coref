@@ -33,7 +33,7 @@ class FullyConnectedLayer(Module):
 
 class CoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff, zero_null_logits):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -44,6 +44,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         self.only_joint_mention_logits = only_joint_mention_logits
         self.no_joint_mention_logits = no_joint_mention_logits
         self.pos_coeff = pos_coeff
+        self.zero_null_logits = zero_null_logits
         self.args = args
 
         if args.model_type == "longformer":
@@ -304,7 +305,9 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
         temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, seq_length, dim]
         end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
         end_coref_logits = self.mask_antecedent_logits(end_coref_logits)
-
+        if self.zero_null_logits:
+            start_coref_logits[:, :, 0] = 0
+            end_coref_logits[:, :, 0] = 0
         if return_all_outputs:
             outputs = (mention_logits, start_coref_logits, end_coref_logits)
 
