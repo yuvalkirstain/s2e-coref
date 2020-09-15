@@ -51,7 +51,7 @@ def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
 
 
 def extract_clusters_for_decode(mention_to_antecedent):
-    mention_to_antecedent.sort()
+    mention_to_antecedent = sorted(mention_to_antecedent)
     mention_to_cluster = {}
     clusters = []
     for mention, antecedent in mention_to_antecedent:
