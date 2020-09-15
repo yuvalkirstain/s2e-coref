@@ -114,6 +114,7 @@ def main():
                                                                    no_joint_mention_logits=args.no_joint_mention_logits,
                                                                    pos_coeff=args.pos_coeff,
                                                                    independent_mention_loss=args.independent_mention_loss,
+                                                                   normalise_loss=args.normalise_loss,
                                                                    args=args)
     else:
         CoreferenceResolutionModel.config_class = config_class

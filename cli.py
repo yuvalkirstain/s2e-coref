@@ -169,6 +169,8 @@ def parse_args():
     parser.add_argument("--zero_null_logits", action="store_true")
 
     parser.add_argument("--independent_mention_loss", action="store_true")
+    parser.add_argument("--normalise_loss", action="store_true")
+
 
     args = parser.parse_args()
 

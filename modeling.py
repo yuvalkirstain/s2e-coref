@@ -360,7 +360,7 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
 class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff, independent_mention_loss):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -373,6 +373,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.no_joint_mention_logits = no_joint_mention_logits
         # self.pos_coeff = pos_coeff
         self.independent_mention_loss = independent_mention_loss
+        self.normalise_loss = normalise_loss
         self.args = args
 
         if args.model_type == "longformer":
@@ -525,7 +526,9 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         gold_log_probs = gold_log_sum_exp - all_log_sum_exp
         losses = -gold_log_probs
         losses = losses * span_mask
-        per_example_loss = torch.sum(losses, dim=-1) / losses.size(-1)  # [batch_size]
+        per_example_loss = torch.sum(losses, dim=-1)  # [batch_size]
+        if self.normalise_loss:
+            per_example_loss = per_example_loss / losses.size(-1)
         loss = per_example_loss.mean()
         return loss
 
