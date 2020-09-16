@@ -107,11 +107,3 @@ class Decoder:
             if to_add:
                 filtered_candidate_mentions.append((start, end))
         return filtered_candidate_mentions
-
-
-if __name__ == "__main__":
-    a = np.random.random((10, 10))
-    b = np.random.random((10, 10))
-    c = np.random.random((10, 10))
-    mentions = cluster_mentions(a, b, c, [1] * 10, 0.4)
-    pass

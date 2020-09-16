@@ -606,6 +606,8 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
                     mention_logits=mention_logits,
                     attention_mask=attention_mask)
                 losses.update(entity_losses)
+            else:
+                entity_mention_loss = 0.0
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
             end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
             loss = end_to_end_loss + entity_mention_loss
