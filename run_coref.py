@@ -115,6 +115,7 @@ def main():
                                                                    pos_coeff=args.pos_coeff,
                                                                    independent_mention_loss=args.independent_mention_loss,
                                                                    normalise_loss=args.normalise_loss,
+                                                                   num_neighboring_antecedents=args.num_neighboring_antecedents,
                                                                    args=args)
     else:
         CoreferenceResolutionModel.config_class = config_class
