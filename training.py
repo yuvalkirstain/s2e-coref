@@ -204,6 +204,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                     if f1 > best_f1:
                         best_f1 = f1
                         best_global_step = global_step
+                    logger.info(f"best f1 is {best_f1} on global step {global_step}")
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
                     output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
