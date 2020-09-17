@@ -428,7 +428,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
             return None
 
         tmp = torch.ones((batch_size, max_k, max_k), device=self.device)
-        return tmp.tril(diagonal=-1).triu(diagonal=-self.neighboring_antecedents)
+        return tmp.tril(diagonal=-1).triu(diagonal=-self.num_neighboring_antecedents)
 
     def _prune_top_lambda_spans(self, mention_logits, attention_mask):
         """
