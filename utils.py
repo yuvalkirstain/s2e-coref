@@ -1,6 +1,13 @@
+import json
+import os
 from collections import namedtuple, Counter
 import pickle
+from datetime import datetime
+from time import time
+import git
+
 import numpy as np
+
 # from scipy.optimize import linear_sum_assignment
 NULL_ID = 0
 NULL_ID_FOR_COREF = 0
@@ -42,6 +49,7 @@ def extract_clusters(gold_clusters):
     gold_clusters = [cluster for cluster in gold_clusters if len(cluster) > 0]
     return gold_clusters
 
+
 def extract_mentions_to_predicted_clusters_from_clusters(gold_clusters):
     mention_to_gold = {}
     for gc in gold_clusters:
@@ -67,3 +75,24 @@ def extract_clusters_for_decode(mention_to_antecedent):
             clusters.append([antecedent, mention])
     clusters = [tuple(cluster) for cluster in clusters]
     return clusters, mention_to_cluster
+
+
+def write_meta_data(output_dir, args):
+    output_path = os.path.join(output_dir, "meta.json")
+    repo = git.Repo(search_parent_directories=True)
+    sha = repo.head.object.hexsha
+    branch = repo.head.ref.name
+    ts = time()
+    print(f"Writing {output_path}")
+    with open(output_path, mode='w') as f:
+        json.dump(
+            {
+                'git_branch': branch,
+                'git_short_sha': sha,
+                'args': args.__dict__,
+                'date': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            f,
+            indent=4,
+            sort_keys=True)
+        print(file=f)

@@ -15,6 +15,7 @@ from data import get_dataset
 from cli import parse_args
 from training import train, set_seed
 from eval import Evaluator
+from utils import write_meta_data
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,13 @@ def main():
         args.n_gpu = 1
     args.device = device
 
+
     with open(os.path.join(args.output_dir, 'args.pkl'), 'wb') as f:
         pickle.dump(args, f)
     with open(os.path.join(args.output_dir, 'args.txt'), 'w') as f:
         f.write(str(args))
+    write_meta_data(args.output_dir, args)
+
 
     # Setup logging
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
