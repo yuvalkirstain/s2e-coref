@@ -88,6 +88,7 @@ def parse_args():
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--head_learning_rate", default=0.0, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--dropout_prob", default=0.3, type=float)
+    parser.add_argument("--encoder_dropout_prob", default=0.1, type=float)
     parser.add_argument("--gradient_accumulation_steps",
                         type=int,
                         default=1,
@@ -147,6 +148,7 @@ def parse_args():
     parser.add_argument("--max_span_length", type=int, required=False, default=30)
     parser.add_argument("--seperate_mention_loss", action='store_true')
     parser.add_argument("--top_lambda", type=float, default=0.4)
+    parser.add_argument("--num_neighboring_antecedents", type=int, default=0)
     parser.add_argument("--pos_coeff", type=float, default=0.5, help="coefficient to interpolate positive/non_null loss and negative/null loss")
 
     parser.add_argument("--prune_mention_for_antecedents", action="store_true")

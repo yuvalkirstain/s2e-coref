@@ -360,7 +360,9 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
 
 class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
-                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits, no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss):
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits,
+                 no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss,
+                 num_neighboring_antecedents):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
@@ -374,6 +376,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         # self.pos_coeff = pos_coeff
         self.independent_mention_loss = independent_mention_loss
         self.normalise_loss = normalise_loss
+        self.num_neighboring_antecedents = num_neighboring_antecedents
         self.args = args
 
         if args.model_type == "longformer":
@@ -404,10 +407,28 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         raise ValueError("Unsupported model type")
 
     def _get_span_mask(self, batch_size, k, max_k):
+        """
+        :param batch_size: int
+        :param k: tensor of size [batch_size], with the required k for each example
+        :param max_k: int
+        :return: [batch_size, max_k] of zero-ones, where 1 stands for a valid span and 0 for a padded span
+        """
         size = (batch_size, max_k)
-        idx = torch.arange(max_k).unsqueeze(0).expand(size).to(self.device)
+        idx = torch.arange(max_k, device=self.device).unsqueeze(0).expand(size)
         len_expanded = k.unsqueeze(1).expand(size)
         return (idx < len_expanded).int()
+
+    def _get_neighboring_antecedent_mask(self, batch_size, max_k):
+        """
+        :param batch_size: int
+        :param max_k: int
+        :return: [batch_size, max_k, max_k]
+        """
+        if self.num_neighboring_antecedents <= 0:
+            return None
+
+        tmp = torch.ones((batch_size, max_k, max_k), device=self.device)
+        return tmp.tril(diagonal=-1).triu(diagonal=-self.num_neighboring_antecedents)
 
     def _prune_top_lambda_spans(self, mention_logits, attention_mask):
         """
@@ -435,11 +456,14 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         return span_starts, span_ends, span_mask, new_mention_logits
 
-    def _mask_antecedent_logits(self, antecedent_logits, span_mask):
-        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).triu(diagonal=0)  # [batch_size, k, k]
-        antecedents_mask = (antecedents_mask.bool() | (1 - span_mask).unsqueeze(-1).bool()).int()
-        antecedents_mask = antecedents_mask * -10000.0
-        antecedent_logits = antecedent_logits + antecedents_mask  # [batch_size, seq_length, seq_length]
+    def _mask_antecedent_logits(self, antecedent_logits, span_mask, neighboring_antecedent_mask=None):
+        # We now build the matrix for each pair of spans (i,j) - whether j is a candidate for being antecedent of i?
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).tril(diagonal=-1)  # [batch_size, k, k]
+        if neighboring_antecedent_mask is not None:
+            antecedents_mask = antecedents_mask * neighboring_antecedent_mask
+        antecedents_mask = antecedents_mask * span_mask.unsqueeze(-1)  # [batch_size, k, k]
+
+        antecedent_logits = antecedent_logits + (1 - antecedents_mask) * -1e4  # [batch_size, seq_length, seq_length]
         antecedent_logits = torch.clamp(antecedent_logits, min=-10000.0, max=10000.0)
 
         return antecedent_logits
@@ -592,7 +616,9 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         new_mention_logits = new_mention_logits.unsqueeze(-1) + new_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         coref_logits = new_mention_logits + start_coref_logits + end_coref_logits  # [batch_size, max_k, max_k]
-        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
+
+        neighboring_antecedents_mask = self._get_neighboring_antecedent_mask(batch_size, max_k)
+        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask, neighboring_antecedents_mask)
 
         # adding zero logits for null span
         coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1) # [batch_size, max_k, max_k + 1]
