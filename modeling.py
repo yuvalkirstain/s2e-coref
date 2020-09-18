@@ -599,23 +599,23 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         mention_logits = mention_logits + mention_mask
         mention_logits = torch.clamp(mention_logits, min=-10000.0, max=10000.0)
 
-        span_starts, span_ends, span_mask, new_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
+        span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
 
         batch_size,  _, dim = start_coref_reps.size()
         max_k = span_starts.size(-1)
         size = (batch_size, max_k, dim)
 
-        start_coref_reps = torch.gather(start_coref_reps, dim=1, index=span_starts.unsqueeze(-1).expand(size))
-        end_coref_reps = torch.gather(end_coref_reps, dim=1, index=span_ends.unsqueeze(-1).expand(size))
+        top_k_start_coref_reps = torch.gather(start_coref_reps, dim=1, index=span_starts.unsqueeze(-1).expand(size))
+        top_k_end_coref_reps = torch.gather(end_coref_reps, dim=1, index=span_ends.unsqueeze(-1).expand(size))
         # Antecedent scores
-        temp = self.antecedent_start_classifier(start_coref_reps)  # [batch_size, max_k, dim]
-        start_coref_logits = torch.matmul(temp,
-                                          start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
-        temp = self.antecedent_end_classifier(end_coref_reps)  # [batch_size, max_k, dim]
-        end_coref_logits = torch.matmul(temp, end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+        temp = self.antecedent_start_classifier(top_k_start_coref_reps)  # [batch_size, max_k, dim]
+        top_k_start_coref_logits = torch.matmul(temp,
+                                          top_k_start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+        temp = self.antecedent_end_classifier(top_k_end_coref_reps)  # [batch_size, max_k, dim]
+        top_k_end_coref_logits = torch.matmul(temp, top_k_end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
-        new_mention_logits = new_mention_logits.unsqueeze(-1) + new_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
-        coref_logits = new_mention_logits + start_coref_logits + end_coref_logits  # [batch_size, max_k, max_k]
+        top_k_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
+        coref_logits = top_k_mention_logits + top_k_start_coref_logits + top_k_end_coref_logits  # [batch_size, max_k, max_k]
 
         neighboring_antecedents_mask = self._get_neighboring_antecedent_mask(batch_size, max_k)
         coref_logits = self._mask_antecedent_logits(coref_logits, span_mask, neighboring_antecedents_mask)
