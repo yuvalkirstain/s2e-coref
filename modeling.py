@@ -625,18 +625,18 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         outputs = (span_starts, span_ends, coref_logits, mention_logits)
         if gold_clusters is not None:
             losses = {}
+            loss = 0.0
             if self.independent_mention_loss:
                 entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(
                     start_entity_mention_labels=start_entity_mention_labels,
                     end_entity_mention_labels=end_entity_mention_labels,
                     mention_logits=mention_logits,
                     attention_mask=attention_mask)
+                loss += entity_mention_loss
                 losses.update(entity_losses)
-            else:
-                entity_mention_loss = 0.0
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
             end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
-            loss = end_to_end_loss + entity_mention_loss
+            loss += end_to_end_loss
             losses.update({"loss": loss})
             outputs = (loss,) + outputs + (losses,)
 
