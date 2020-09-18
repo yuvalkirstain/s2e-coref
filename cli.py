@@ -152,7 +152,7 @@ def parse_args():
     parser.add_argument("--pos_coeff", type=float, default=0.5, help="coefficient to interpolate positive/non_null loss and negative/null loss")
 
     parser.add_argument("--prune_mention_for_antecedents", action="store_true")
-    parser.add_argument("--not_normalize_antecedent_loss", action='store_true')
+    parser.add_argument("--normalize_antecedent_loss", action='store_true')
     parser.add_argument("--only_joint_mention_logits", action='store_true')
     parser.add_argument("--no_joint_mention_logits", action='store_true')
 
@@ -173,6 +173,7 @@ def parse_args():
     parser.add_argument("--independent_mention_loss", action="store_true")
     parser.add_argument("--normalise_loss", action="store_true")
 
+    parser.add_argument("--independent_start_end_loss", action="store_true")
 
     args = parser.parse_args()
 
