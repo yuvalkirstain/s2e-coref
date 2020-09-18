@@ -5,7 +5,7 @@ import logging
 import os
 import pickle
 import shutil
-
+import git
 import torch
 
 from transformers import AutoConfig, AutoTokenizer, CONFIG_MAPPING, LongformerConfig, RobertaConfig
@@ -60,13 +60,16 @@ def main():
         pickle.dump(args, f)
     with open(os.path.join(args.output_dir, 'args.txt'), 'w') as f:
         f.write(str(args))
-    write_meta_data(args.output_dir, args)
-
 
     # Setup logging
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+    try:
+        write_meta_data(args.output_dir, args)
+    except git.exc.InvalidGitRepositoryError:
+        logger.info("didn't save metadata - No git repo!")
+
     logger.info("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, amp training: %s",
                 args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.amp)
 
