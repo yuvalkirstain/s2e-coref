@@ -229,6 +229,9 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         args.results_dir = args.output_dir
     with open(os.path.join(args.results_dir, f"{args.experiment_name}_bestf1.json"), "w") as f:
         json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
+    with open(os.path.join(args.output_dir, f"best_f1.json"), "w") as f:
+        json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
+
     # if args.local_rank in [-1, 0]:
     #     tb_writer.close()
 
