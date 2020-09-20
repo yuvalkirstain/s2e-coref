@@ -147,7 +147,6 @@ class Evaluator:
         results = OrderedDict(results)
         results["experiment_name"] = self.args.experiment_name
         results["data"] = prefix
-        if self.args.results_dir:
-            with open(os.path.join(self.args.results_dir, self.args.experiment_name + ".jsonl"), "a+") as f:
-                f.write(json.dumps(results) + '\n')
+        with open(os.path.join(self.args.output_dir, "results.jsonl"), "a+") as f:
+            f.write(json.dumps(results) + '\n')
         return results
