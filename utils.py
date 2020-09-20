@@ -97,7 +97,7 @@ def write_meta_data(output_dir, args):
             {
                 'git_branch': branch,
                 'git_short_sha': sha,
-                'args': args.__dict__,
+                'args': {k: str(v) for k, v in args.__dict__.items()},
                 'date': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
             },
             f,
