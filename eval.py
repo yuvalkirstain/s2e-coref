@@ -80,7 +80,25 @@ class Evaluator:
                 mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
                 gold_mentions = list(mention_to_gold_clusters.keys())
 
-                if not self.args.end_to_end:
+                if self.args.end_to_end:
+                    starts, end_offsets, coref_logits, mention_logits = output[-4:]
+
+                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
+                    mention_to_antecedent = {((start, end), (starts[max_antecedent], end_offsets[max_antecedent])) for start, end, max_antecedent in
+                                             zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
+
+                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
+                    candidate_mentions = list(zip(starts, end_offsets))
+                elif self.args.baseline:
+                    starts, end_offsets, coref_logits, mention_logits = output[-4:]
+
+                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
+                    mention_to_antecedent = {((start, start + end_offest), (starts[max_antecedent], starts[max_antecedent] + end_offsets[max_antecedent])) for start, end_offest, max_antecedent in
+                                             zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
+
+                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
+                    candidate_mentions = list(zip(starts, starts + end_offsets))
+                else:
                     data_point = EvalDataPoint(*output)
 
                     decoder = Decoder(use_mention_logits_for_antecedents=self.args.use_mention_logits_for_antecedents,
@@ -95,14 +113,7 @@ class Evaluator:
                                                                                       data_point.end_coref_logits,
                                                                                       data_point.attention_mask,
                                                                                       self.args.top_lambda)
-                else:
-                    starts, ends, coref_logits, mention_logits = output[-4:]
 
-                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
-                    mention_to_antecedent = {((start, end), (starts[max_antecedent], ends[max_antecedent])) for start, end, max_antecedent in zip(starts, ends, max_antecedents) if max_antecedent < len(starts)}
-
-                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
-                    candidate_mentions = list(zip(starts, ends))
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())
                 post_pruning_mention_evaluator.update(candidate_mentions, gold_mentions)

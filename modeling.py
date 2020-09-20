@@ -4,7 +4,7 @@ from torch.nn import Module, Linear, LayerNorm, Dropout
 from transformers import BertPreTrainedModel, LongformerModel, RobertaModel, RobertaConfig
 from transformers.modeling_bert import ACT2FN
 
-from utils import extract_clusters, extract_mentions_to_predicted_clusters_from_clusters
+from utils import extract_clusters, extract_mentions_to_predicted_clusters_from_clusters, mask_tensor
 from data import PAD_ID_FOR_COREF
 
 
@@ -732,6 +732,253 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
                 losses["end_coref_loss"] = end_coref_loss
 
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
+            end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
+            losses.update({"end_to_end_loss": end_to_end_loss})
+            loss += end_to_end_loss
+            losses.update({"loss": loss})
+            outputs = (loss,) + outputs + (losses,)
+
+        return outputs
+
+
+class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
+    def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
+                 prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits,
+                 no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss,
+                 num_neighboring_antecedents, independent_start_end_loss):
+        super().__init__(config)
+        self.config = config
+        self.num_labels = config.num_labels
+        self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
+        self.max_span_length = max_span_length
+        self.top_lambda = args.top_lambda
+        # self.seperate_mention_loss = seperate_mention_loss
+        # self.prune_mention_for_antecedents = prune_mention_for_antecedents
+        self.normalize_antecedent_loss = normalize_antecedent_loss
+        self.only_joint_mention_logits = only_joint_mention_logits
+        self.no_joint_mention_logits = no_joint_mention_logits
+        self.pos_coeff = pos_coeff
+        self.independent_mention_loss = independent_mention_loss
+        self.normalise_loss = normalise_loss
+        self.num_neighboring_antecedents = num_neighboring_antecedents
+        self.independent_start_end_loss = independent_start_end_loss
+        self.args = args
+
+        if args.model_type == "longformer":
+            self.longformer = LongformerModel(config)
+        elif args.model_type == "roberta":
+            self.roberta = RobertaModel(config)
+
+        self.mention_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, 2 * config.hidden_size, args.dropout_prob)
+        self.coref_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, 2 * config.hidden_size, args.dropout_prob)
+
+        self.entity_mention_classifier = nn.Linear(2 * config.hidden_size, 1)  # In paper w_s
+        self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e
+        self.coref_joint_classifier = nn.Linear(2 * config.hidden_size, 2 * config.hidden_size)  # M
+
+        self.antecedent_start_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # S
+        self.antecedent_end_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # E
+
+        self.init_weights()
+
+    def _get_encoder(self):
+        if self.args.model_type == "longformer":
+            return self.longformer
+        elif self.args.model_type == "roberta":
+            return self.roberta
+
+        raise ValueError("Unsupported model type")
+
+    def get_span_reps(self, sequence_output, attention_mask):
+        batch_size, seq_len, dim = sequence_output.size()
+        candidate_starts = torch.arange(seq_len, device=self.device).unsqueeze(-1).expand((batch_size, seq_len, self.max_span_length))  # [batch_size, seq_len, max_span_len]
+
+        end_offsets = torch.arange(self.max_span_length, device=self.device).unsqueeze(0).unsqueeze(0)  # [1, 1, max_span_len]
+        candidate_ends = candidate_starts + end_offsets  # [batch_size, seq_len, max_span_len]
+        actual_seq_lens = torch.sum(attention_mask, dim=-1).unsqueeze(-1).unsqueeze(-1)  # [batch_size, 1, 1]
+        candidate_ends[candidate_ends >= actual_seq_lens] = 0
+
+        candidate_mask = candidate_ends.bool()  # [batch_size, seq_len, max_span_len]
+        candidate_mask[:, 0, 0] = True
+
+        size = (batch_size, seq_len * self.max_span_length, dim)
+        start_reps = torch.gather(sequence_output, dim=1, index=candidate_starts.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * self.max_span_length, dim]
+        end_reps = torch.gather(sequence_output, dim=1, index=candidate_ends.reshape(batch_size, -1, 1).expand(size))
+        span_reps = torch.cat((start_reps, end_reps), dim=-1)  # [batch_size, max_span_length*seq_len, 2*dim]
+
+        return span_reps.reshape(batch_size, seq_len, self.max_span_length, 2 * dim), candidate_mask
+
+    def _get_span_mask(self, batch_size, k, max_k):
+        """
+        :param batch_size: int
+        :param k: tensor of size [batch_size], with the required k for each example
+        :param max_k: int
+        :return: [batch_size, max_k] of zero-ones, where 1 stands for a valid span and 0 for a padded span
+        """
+        size = (batch_size, max_k)
+        idx = torch.arange(max_k, device=self.device).unsqueeze(0).expand(size)
+        len_expanded = k.unsqueeze(1).expand(size)
+        return (idx < len_expanded).int()
+
+    def _prune_top_lambda_spans(self, mention_logits, attention_mask):
+        """
+        :param mention_logits: Shape [batch_size, seq_length, seq_length]
+        :param attention_mask: [batch_size, seq_length]
+        :param top_lambda:
+        :return:
+        """
+        batch_size, seq_length, max_span_length = mention_logits.size()
+        actual_seq_lengths = torch.sum(attention_mask, dim=-1)  # [batch_size]
+
+        k = (actual_seq_lengths * self.top_lambda).int()  # [batch_size]
+        max_k = int(torch.max(k))  # This is the k for the largest input in the batch, we will need to pad
+
+        topk_1d_indices = torch.topk(mention_logits.view(batch_size, -1), dim=-1, k=max_k).indices  # [batch_size, max_k]
+        span_mask = self._get_span_mask(batch_size, k, max_k)  # [batch_size, max_k]
+        topk_1d_indices = (topk_1d_indices * span_mask) + (1 - span_mask) * ((seq_length * max_span_length) - 1)  # We take different k for each example
+        sorted_topk_1d_indices, _ = torch.sort(topk_1d_indices, dim=-1)  # [batch_size, max_k]
+
+        span_starts = sorted_topk_1d_indices // max_span_length  # [batch_size, max_k]
+        span_end_offsets = sorted_topk_1d_indices % max_span_length  # [batch_size, max_k]
+
+        new_mention_logits = mention_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k]
+
+        return span_starts, span_end_offsets, span_mask, new_mention_logits
+
+    def _get_cluster_labels_after_pruning(self, span_starts, span_end_offsets, all_clusters):
+        """
+        :param span_starts: [batch_size, max_k]
+        :param span_ends: [batch_size, max_k]
+        :param all_clusters: [batch_size, max_cluster_size, max_clusters_num, 2]
+        :return: [batch_size, max_k, max_k + 1] - [b, i, j] == 1 if i is antecedent of j
+        """
+        # TODO yuval
+        # needs to have a null place and to add 0 to logits for null and to add to labels.
+        batch_size, max_k = span_starts.size()
+        new_cluster_labels = torch.zeros((batch_size, max_k, max_k + 1), device='cpu')
+        all_clusters_cpu = all_clusters.cpu().numpy()
+        span_ends = span_starts + span_end_offsets
+        for b, (starts, ends, gold_clusters) in enumerate(zip(span_starts.cpu().tolist(), span_ends.cpu().tolist(), all_clusters_cpu)):
+            gold_clusters = extract_clusters(gold_clusters)
+            mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
+            gold_mentions = set(mention_to_gold_clusters.keys())
+            for i, (start, end) in enumerate(zip(starts, ends)):
+                if (start, end) not in gold_mentions:
+                    continue
+                for j, (a_start, a_end) in enumerate(list(zip(starts, ends))[:i]):
+                    if (a_start, a_end) in mention_to_gold_clusters[(start, end)]:
+                        new_cluster_labels[b, i, j] = 1
+        new_cluster_labels = new_cluster_labels.to(self.device)
+        no_antecedents = 1 - torch.sum(new_cluster_labels, dim=-1).bool().float()
+        new_cluster_labels[:, :, -1] = no_antecedents
+        return new_cluster_labels
+
+    def _get_marginal_log_likelihood_loss(self, coref_logits, cluster_labels_after_pruning, span_mask):
+        """
+        :param coref_logits: [batch_size, max_k, max_k]
+        :param cluster_labels_after_pruning: [batch_size, max_k, max_k]
+        :param span_mask: [batch_size, max_k]
+        :return:
+        """
+        gold_coref_logits = coref_logits + ((1.0 - cluster_labels_after_pruning) * -10000.0)
+        gold_coref_logits = torch.clamp(gold_coref_logits, min=-10000.0, max=10000.0)
+
+        gold_log_sum_exp = torch.logsumexp(gold_coref_logits, dim=-1)  # [batch_size, max_k]
+        all_log_sum_exp = torch.logsumexp(coref_logits, dim=-1)  # [batch_size, max_k]
+
+        gold_log_probs = gold_log_sum_exp - all_log_sum_exp
+        losses = -gold_log_probs
+        losses = losses * span_mask
+        per_example_loss = torch.sum(losses, dim=-1)  # [batch_size]
+        if self.normalise_loss:
+            per_example_loss = per_example_loss / losses.size(-1)
+        loss = per_example_loss.mean()
+        return loss
+
+    def _compute_pos_neg_loss(self, weights, labels, logits):
+        loss_fct = nn.BCEWithLogitsLoss(reduction='none')
+        all_loss = loss_fct(logits, labels)
+
+        pos_weights = weights * labels
+        pos_loss = (all_loss * pos_weights).sum() / (pos_weights.sum() + 1e-4)
+
+        neg_weights = weights * (1 - labels)
+        neg_loss = (all_loss * neg_weights).sum() / (neg_weights.sum() + 1e-4)
+
+        loss = 0.5 * neg_loss + 0.5 * pos_loss
+        return loss, (neg_loss, pos_loss)
+
+    def _compute_joint_entity_mention_loss(self, start_entity_mention_labels, end_entity_mention_labels, mention_logits, attention_mask, candidate_mask):
+        """
+        :param start_entity_mention_labels: [batch_size, num_mentions]
+        :param end_entity_mention_labels: [batch_size, num_mentions]
+        :param mention_logits: [batch_size, seq_length, seq_length]
+        :return:
+        """
+        device = start_entity_mention_labels.device
+        batch_size, seq_length, max_span_length = mention_logits.size()
+        num_mentions = start_entity_mention_labels.size(-1)
+        end_offset_from_start_labels = end_entity_mention_labels - start_entity_mention_labels
+
+        # We now take the index tensors and turn them into sparse tensors
+        labels = torch.zeros_like(mention_logits)
+        batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
+        labels[batch_temp, start_entity_mention_labels, end_offset_from_start_labels] = 1.0  # [batch_size, seq_length, seq_length]
+        labels[:, PAD_ID_FOR_COREF, PAD_ID_FOR_COREF] = 0.0  # Remove the padded mentions
+
+        loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(candidate_mask, labels, mention_logits)
+        return loss, {"mention_joint_neg_loss": neg_loss, "mention_joint_pos_loss": pos_loss}
+
+    def _mask_antecedent_logits(self, antecedent_logits, span_mask=None, neighboring_antecedent_mask=None):
+        # We now build the matrix for each pair of spans (i,j) - whether j is a candidate for being antecedent of i?
+        antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).tril(diagonal=-1)  # [batch_size, k, k]
+        if neighboring_antecedent_mask is not None:
+            antecedents_mask = antecedents_mask * neighboring_antecedent_mask
+        if span_mask is not None:
+            antecedents_mask = antecedents_mask * span_mask.unsqueeze(-1)  # [batch_size, k, k]
+
+        antecedent_logits = mask_tensor(antecedent_logits, antecedents_mask)
+
+        return antecedent_logits
+
+    def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
+                start_antecedent_labels=None, end_antecedent_labels=None, gold_clusters=None, return_all_outputs=False):
+        encoder = self._get_encoder()
+        outputs = encoder(input_ids, attention_mask=attention_mask)
+        sequence_output = outputs[0]
+
+        candidate_mention_reps, candidate_mask = self.get_span_reps(sequence_output, attention_mask)  # [batch_size, seq_len, max_span_len, 2*dim]
+        mention_logits = self.entity_mention_classifier(self.mention_mlp(candidate_mention_reps)).squeeze(-1)  # [batch_size, seq_len, max_span_len]
+        mention_logits = mask_tensor(mention_logits, candidate_mask)
+
+        span_starts, span_end_offsets, span_mask, top_k_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
+        batch_size, k = top_k_mention_logits.size()
+        top_k_mention_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
+
+        # Antecedent scores
+        # TODO as in the article
+        temp = self.coref_joint_classifier(top_k_mention_reps)  # [batch_size, max_k, 2*dim]
+        top_k_coref_antecedent_logits = torch.matmul(temp, top_k_mention_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+        top_k_coref_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
+        coref_logits = top_k_coref_mention_logits + top_k_coref_antecedent_logits  # [batch_size, max_k, max_k]
+        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
+
+        # adding zero logits for null span
+        coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_k + 1]
+        outputs = (span_starts, span_end_offsets, coref_logits, mention_logits)
+        if gold_clusters is not None:
+            losses = {}
+            loss = 0.0
+            if self.independent_mention_loss:
+                entity_mention_loss, entity_losses = self._compute_joint_entity_mention_loss(start_entity_mention_labels=start_entity_mention_labels,
+                                                                                             end_entity_mention_labels=end_entity_mention_labels,
+                                                                                             mention_logits=mention_logits,
+                                                                                             attention_mask=attention_mask,
+                                                                                             candidate_mask=candidate_mask)
+                loss += entity_mention_loss
+                losses.update(entity_losses)
+
+            labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_end_offsets, gold_clusters)
             end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
             losses.update({"end_to_end_loss": end_to_end_loss})
             loss += end_to_end_loss
