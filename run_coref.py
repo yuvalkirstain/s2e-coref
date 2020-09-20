@@ -151,7 +151,7 @@ def main():
 
     logger.info("Training/evaluation parameters %s", args)
 
-    sampling_prob = 0.15 if args.predict_file_cache == args.train_file_cache else 1.0
+    sampling_prob = args.sampling_prob
     evaluator = Evaluator(args, tokenizer, sampling_prob)
     # Training
     if args.do_train:

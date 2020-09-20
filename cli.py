@@ -175,6 +175,7 @@ def parse_args():
 
     parser.add_argument("--independent_start_end_loss", action="store_true")
 
+    parser.add_argument("--sampling_prob", type=int, default=1)
     args = parser.parse_args()
 
     assert (args.experiment_name is not None and args.results_dir is not None) or (args.results_dir is None and args.experiment_name is None)
