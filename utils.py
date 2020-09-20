@@ -9,6 +9,8 @@ import git
 import numpy as np
 
 # from scipy.optimize import linear_sum_assignment
+import torch
+
 NULL_ID = 0
 NULL_ID_FOR_COREF = 0
 EVAL_DATA_FILE_NAME = "eval_data_111.jsonl"
@@ -75,6 +77,12 @@ def extract_clusters_for_decode(mention_to_antecedent):
             clusters.append([antecedent, mention])
     clusters = [tuple(cluster) for cluster in clusters]
     return clusters, mention_to_cluster
+
+
+def mask_tensor(t, mask):
+    t = t + ((1.0 - mask.int()) * -10000.0)
+    t = torch.clamp(t, min=-10000.0, max=10000.0)
+    return t
 
 
 def write_meta_data(output_dir, args):
