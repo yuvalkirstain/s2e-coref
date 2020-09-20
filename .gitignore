@@ -12,3 +12,4 @@ output
 /checkpoint-*/
 results
 graphs
+one-epoch
