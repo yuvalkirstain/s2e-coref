@@ -917,13 +917,15 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         """
         device = start_entity_mention_labels.device
         batch_size, seq_length, max_span_length = mention_logits.size()
-        num_mentions = start_entity_mention_labels.size(-1)
-        end_offset_from_start_labels = end_entity_mention_labels - start_entity_mention_labels
-
+        end_offset_labels = end_entity_mention_labels - start_entity_mention_labels
+        span_length_valid_mention_indices = end_offset_labels >= self.max_span_length  # offset >= max_span_length --> actual_span_length > max_span_length
+        start_entity_mention_labels[span_length_valid_mention_indices] = PAD_ID_FOR_COREF
+        end_offset_labels[span_length_valid_mention_indices] = PAD_ID_FOR_COREF
         # We now take the index tensors and turn them into sparse tensors
         labels = torch.zeros_like(mention_logits)
+        num_mentions = start_entity_mention_labels.size(-1)
         batch_temp = torch.arange(batch_size, device=device).unsqueeze(-1).repeat(1, num_mentions)
-        labels[batch_temp, start_entity_mention_labels, end_offset_from_start_labels] = 1.0  # [batch_size, seq_length, seq_length]
+        labels[batch_temp, start_entity_mention_labels, end_offset_labels] = 1.0  # [batch_size, seq_length, seq_length]
         labels[:, PAD_ID_FOR_COREF, PAD_ID_FOR_COREF] = 0.0  # Remove the padded mentions
 
         loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(candidate_mask, labels, mention_logits)
