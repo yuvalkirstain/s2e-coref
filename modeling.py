@@ -745,7 +745,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
                  prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits,
                  no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss,
-                 num_neighboring_antecedents, independent_start_end_loss):
+                 max_c, independent_start_end_loss, coarse_to_fine):
         super().__init__(config)
         self.config = config
         self.num_labels = config.num_labels
@@ -760,8 +760,9 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         self.pos_coeff = pos_coeff
         self.independent_mention_loss = independent_mention_loss
         self.normalise_loss = normalise_loss
-        self.num_neighboring_antecedents = num_neighboring_antecedents
+        self.max_c = max_c
         self.independent_start_end_loss = independent_start_end_loss
+        self.coarse_to_fine = coarse_to_fine
         self.args = args
 
         if args.model_type == "longformer":
@@ -770,13 +771,13 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
             self.roberta = RobertaModel(config)
 
         self.mention_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, 2 * config.hidden_size, args.dropout_prob)
-        self.coref_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, 2 * config.hidden_size, args.dropout_prob)
+        self.coref_mlp = FullyConnectedLayer(config, 6 * config.hidden_size, 1, args.dropout_prob)
 
         self.entity_mention_classifier = nn.Linear(2 * config.hidden_size, 1)  # In paper w_s
         self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e
         self.coref_joint_classifier = nn.Linear(2 * config.hidden_size, 2 * config.hidden_size)  # M
 
-        self.antecedent_start_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # S
+        self.coref_classifier = nn.Linear(6 * config.hidden_size, 1)  # S
         self.antecedent_end_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # E
 
         self.init_weights()
@@ -843,7 +844,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
         new_mention_logits = mention_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k]
 
-        return span_starts, span_end_offsets, span_mask, new_mention_logits
+        return span_starts, span_end_offsets, span_mask, new_mention_logits, k
 
     def _get_cluster_labels_after_pruning(self, span_starts, span_end_offsets, all_clusters):
         """
@@ -943,6 +944,28 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
         return antecedent_logits
 
+    def get_slow_antecedent_scores(self, top_k_mention_reps, top_antecedents_reps):
+        batch_size, k, c, _ = top_antecedents_reps.size()
+        similarity_emb = top_k_mention_reps.unsqueeze(2) * top_antecedents_reps  # [batch_size, k, c, 2*dim]
+        target_emb = top_k_mention_reps.unsqueeze(2).expand((batch_size, k, c, -1))
+        pair_emb = torch.cat((target_emb, top_antecedents_reps, similarity_emb), dim=-1)  # [batch_size, k, c, 4*dim]
+        slow_antecedent_scores = self.coref_classifier(pair_emb).squeeze(-1)
+        return slow_antecedent_scores
+
+    def _build_coref_logits(self, coref_logits, antecedents_ids, antecedents_mask):
+        batch_size, k, c = coref_logits.size()
+        new_coref_logits = torch.ones(batch_size, k, k).cpu() * -10000.0
+        for mention_idx, row in enumerate(antecedents_ids.tolist()):
+            for col, antecedent_idx in enumerate(row):
+                if antecedents_mask[mention_idx, col]:
+                    new_coref_logits[:, mention_idx, antecedent_idx] = coref_logits[:, mention_idx, antecedent_idx]
+        new_coref_logits.to(device=self.device)
+        return new_coref_logits
+
+    def _get_top_antecedents_mask(self, batch_size, idx, k, c):
+        pass
+
+
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, gold_clusters=None, return_all_outputs=False):
         encoder = self._get_encoder()
@@ -953,21 +976,37 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         mention_logits = self.entity_mention_classifier(self.mention_mlp(candidate_mention_reps)).squeeze(-1)  # [batch_size, seq_len, max_span_len]
         mention_logits = mask_tensor(mention_logits, candidate_mask)
 
-        span_starts, span_end_offsets, span_mask, top_k_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
-        batch_size, k = top_k_mention_logits.size()
-        top_k_mention_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
+        span_starts, span_end_offsets, mention_mask, top_k_mention_logits, k = self._prune_top_lambda_spans(mention_logits, attention_mask)
+        batch_size, max_k = top_k_mention_logits.size()
+        top_k_mention_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
 
         # Antecedent scores
-        # TODO as in the article
+        # get fast antecedents
         temp = self.coref_joint_classifier(top_k_mention_reps)  # [batch_size, max_k, 2*dim]
         top_k_coref_antecedent_logits = torch.matmul(temp, top_k_mention_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
         top_k_coref_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         coref_logits = top_k_coref_mention_logits + top_k_coref_antecedent_logits  # [batch_size, max_k, max_k]
-        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
-
+        coref_logits = self._mask_antecedent_logits(coref_logits, mention_mask)
+        antecedents_ids = None
+        if self.coarse_to_fine:
+            c = torch.min(torch.tensor(self.max_c, device=self.device, dtype=k.dtype).unsqueeze(-1), (k - 1))  # [batch_size, max_k]
+            max_c = torch.max(c).item()
+            span_c_mask = self._get_span_mask(batch_size, c, max_c)  # [batch_size, max_c]
+            antecedents_mask = mention_mask.unsqueeze(-1) * span_c_mask.unsqueeze(-2)  # [batch_size, max_k, max_c]
+            _, top_c_indices = torch.topk(coref_logits, dim=-1, k=max_c)  # [batch_size, max_k, max_c]
+            top_c_indices = (top_c_indices * antecedents_mask) + (1 - antecedents_mask) * (max_k - 1)  # [batch_size, max_k, max_c]
+            antecedents_ids, _ = torch.sort(top_c_indices, dim=-1)  # [batch_size, max_k, max_c]
+            span_dim = top_k_mention_reps.size(-1)
+            index = antecedents_ids.reshape((batch_size, max_k * max_c, 1)).expand((batch_size, max_k * max_c, span_dim))  # [batch_size, max_k*c, 2*dim]
+            top_antecedents_reps = torch.gather(top_k_mention_reps, dim=1, index=index).reshape(batch_size, max_k, max_c, -1)  # [batch_size, max_k, max_c, 2*dim]
+            top_coref_antecedent_logits = self.get_slow_antecedent_scores(top_k_mention_reps, top_antecedents_reps)  # [batch_size, max_k, max_c]
+            top_coref_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
+            top_coref_mention_logits = torch.gather(top_coref_mention_logits, dim=-1, index=antecedents_ids)  # [batch_size, max_k, max_c]
+            coref_logits = top_coref_mention_logits + top_coref_antecedent_logits  # [batch_size, max_k, max_c]
+            coref_logits = mask_tensor(coref_logits, antecedents_mask)  # [batch_size, max_k, max_c]
         # adding zero logits for null span
-        coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_k + 1]
-        outputs = (span_starts, span_end_offsets, coref_logits, mention_logits)
+        coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_c + 1]
+        outputs = (span_starts, span_end_offsets, coref_logits, mention_logits, antecedents_ids)
         if gold_clusters is not None:
             losses = {}
             loss = 0.0
@@ -981,7 +1020,11 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
                 losses.update(entity_losses)
 
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_end_offsets, gold_clusters)
-            end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
+            if self.coarse_to_fine:
+                labels_after_pruning = torch.gather(labels_after_pruning, dim=-1, index=antecedents_ids)
+                no_antecedents = (torch.sum(labels_after_pruning, dim=-1) == 0).float() * mention_mask
+                labels_after_pruning = torch.cat((labels_after_pruning, no_antecedents.unsqueeze(-1)), dim=-1)
+            end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, mention_mask)
             losses.update({"end_to_end_loss": end_to_end_loss})
             loss += end_to_end_loss
             losses.update({"loss": loss})

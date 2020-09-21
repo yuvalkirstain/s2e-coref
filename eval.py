@@ -90,9 +90,10 @@ class Evaluator:
                     predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
                     candidate_mentions = list(zip(starts, end_offsets))
                 elif self.args.baseline:
-                    starts, end_offsets, coref_logits, mention_logits = output[-4:]
-
+                    starts, end_offsets, coref_logits, mention_logits, antecedent_ids = output[-5:]
                     max_antecedents = np.argmax(coref_logits, axis=1).tolist()
+                    if self.args.coarse_to_fine:
+                        max_antecedents = [antecedent_ids[i, j] if j < antecedent_ids.shape[-1] else len(starts) for i, j in enumerate(max_antecedents)]
                     mention_to_antecedent = {((start, start + end_offest), (starts[max_antecedent], starts[max_antecedent] + end_offsets[max_antecedent])) for start, end_offest, max_antecedent in
                                              zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
 

@@ -176,11 +176,11 @@ def parse_args():
     parser.add_argument("--independent_start_end_loss", action="store_true")
 
     parser.add_argument("--baseline", action="store_true")
-    parser.add_argument("--sampling_prob", type=int, default=1)
+    parser.add_argument("--sampling_prob", type=float, default=1)
 
+    parser.add_argument("--coarse_to_fine", action="store_true")
+    parser.add_argument("--max_c", type=int, default=50)
 
 
     args = parser.parse_args()
-
-    assert (args.experiment_name is not None and args.results_dir is not None) or (args.results_dir is None and args.experiment_name is None)
     return args

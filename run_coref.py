@@ -123,7 +123,7 @@ def main():
                                                                    pos_coeff=args.pos_coeff,
                                                                    independent_mention_loss=args.independent_mention_loss,
                                                                    normalise_loss=args.normalise_loss,
-                                                                   num_neighboring_antecedents=args.num_neighboring_antecedents,
+                                                                   num_neighboring_antecedents=args.max_c,
                                                                    independent_start_end_loss=args.independent_start_end_loss,
                                                                    args=args)
     elif args.baseline:
@@ -142,8 +142,9 @@ def main():
                                                                    pos_coeff=args.pos_coeff,
                                                                    independent_mention_loss=args.independent_mention_loss,
                                                                    normalise_loss=args.normalise_loss,
-                                                                   num_neighboring_antecedents=args.num_neighboring_antecedents,
+                                                                   max_c=args.max_c,
                                                                    independent_start_end_loss=args.independent_start_end_loss,
+                                                                   coarse_to_fine=args.coarse_to_fine,
                                                                    args=args)
     else:
         CoreferenceResolutionModel.config_class = config_class
