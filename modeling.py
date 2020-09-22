@@ -763,6 +763,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         self.max_c = max_c
         self.independent_start_end_loss = independent_start_end_loss
         self.coarse_to_fine = coarse_to_fine
+        self.ffnn_size = 3000
         self.args = args
 
         if args.model_type == "longformer":
@@ -770,15 +771,13 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         elif args.model_type == "roberta":
             self.roberta = RobertaModel(config)
 
-        self.mention_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, 2 * config.hidden_size, args.dropout_prob)
-        self.coref_mlp = FullyConnectedLayer(config, 6 * config.hidden_size, 1, args.dropout_prob)
+        self.mention_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.coref_mlp = FullyConnectedLayer(config, 6 * config.hidden_size, self.ffnn_size, args.dropout_prob)
 
-        self.entity_mention_classifier = nn.Linear(2 * config.hidden_size, 1)  # In paper w_s
-        self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e
-        self.coref_joint_classifier = nn.Linear(2 * config.hidden_size, 2 * config.hidden_size)  # M
+        self.entity_mention_classifier = nn.Linear(self.ffnn_size, 1)  # In paper w_s
+        self.fast_antecedent_classifier = nn.Linear(2 * config.hidden_size, 2 * config.hidden_size)  # M
 
-        self.coref_classifier = nn.Linear(6 * config.hidden_size, 1)  # S
-        self.antecedent_end_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # E
+        self.coref_classifier = nn.Linear(self.ffnn_size, 1)  # S
 
         self.init_weights()
 
@@ -792,22 +791,22 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
     def get_span_reps(self, sequence_output, attention_mask):
         batch_size, seq_len, dim = sequence_output.size()
-        candidate_starts = torch.arange(seq_len, device=self.device).unsqueeze(-1).expand((batch_size, seq_len, self.max_span_length))  # [batch_size, seq_len, max_span_len]
+        span_starts = torch.arange(seq_len, device=self.device).reshape(1, -1, 1).expand((batch_size, seq_len, self.max_span_length))  # [batch_size, seq_len, max_span_len]
 
-        end_offsets = torch.arange(self.max_span_length, device=self.device).unsqueeze(0).unsqueeze(0)  # [1, 1, max_span_len]
-        candidate_ends = candidate_starts + end_offsets  # [batch_size, seq_len, max_span_len]
-        actual_seq_lens = torch.sum(attention_mask, dim=-1).unsqueeze(-1).unsqueeze(-1)  # [batch_size, 1, 1]
-        candidate_ends[candidate_ends >= actual_seq_lens] = 0
+        span_end_offsets = torch.arange(self.max_span_length, device=self.device).reshape(1, 1, -1)  # [1, 1, max_span_len]
+        span_ends = span_starts + span_end_offsets  # [batch_size, seq_len, max_span_len]
+        actual_seq_lens = torch.sum(attention_mask, dim=-1).reshape(-1, 1, 1)  # [batch_size, 1, 1]
+        span_ends[span_ends >= actual_seq_lens] = 0  # end can't be larger than seq_len
 
-        candidate_mask = candidate_ends.bool()  # [batch_size, seq_len, max_span_len]
-        candidate_mask[:, 0, 0] = True
+        candidate_mask = span_ends.bool()  # [batch_size, seq_len, max_span_len]
+        candidate_mask[:, 0, 0] = True  # the (0,0) span is always valid
 
         size = (batch_size, seq_len * self.max_span_length, dim)
-        start_reps = torch.gather(sequence_output, dim=1, index=candidate_starts.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * self.max_span_length, dim]
-        end_reps = torch.gather(sequence_output, dim=1, index=candidate_ends.reshape(batch_size, -1, 1).expand(size))
+        start_reps = torch.gather(sequence_output, dim=1, index=span_starts.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * self.max_span_length, dim]
+        end_reps = torch.gather(sequence_output, dim=1, index=span_ends.reshape(batch_size, -1, 1).expand(size))
         span_reps = torch.cat((start_reps, end_reps), dim=-1)  # [batch_size, max_span_length*seq_len, 2*dim]
 
-        return span_reps.reshape(batch_size, seq_len, self.max_span_length, 2 * dim), candidate_mask
+        return span_reps.reshape(batch_size, seq_len, self.max_span_length, -1), candidate_mask
 
     def _get_span_mask(self, batch_size, k, max_k):
         """
@@ -817,34 +816,37 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         :return: [batch_size, max_k] of zero-ones, where 1 stands for a valid span and 0 for a padded span
         """
         size = (batch_size, max_k)
-        idx = torch.arange(max_k, device=self.device).unsqueeze(0).expand(size)
-        len_expanded = k.unsqueeze(1).expand(size)
-        return (idx < len_expanded).int()
+        min_k_per_entry = torch.arange(max_k, device=self.device).unsqueeze(0).expand(size)
+        actual_k_per_entry = k.unsqueeze(1).expand(size)
+        return (min_k_per_entry < actual_k_per_entry).int()
 
-    def _prune_top_lambda_spans(self, mention_logits, attention_mask):
+    def _prune_top_lambda_spans(self, span_logits, attention_mask, candidate_mention_reps):
         """
-        :param mention_logits: Shape [batch_size, seq_length, seq_length]
+        :param span_logits: Shape [batch_size, seq_length, max_span_length]
         :param attention_mask: [batch_size, seq_length]
-        :param top_lambda:
+        :param candidate_mention_reps: [batch_size, seq_length, max_span_length, 2*dim]
         :return:
         """
-        batch_size, seq_length, max_span_length = mention_logits.size()
+        batch_size, seq_length, max_span_length = span_logits.size()
         actual_seq_lengths = torch.sum(attention_mask, dim=-1)  # [batch_size]
 
         k = (actual_seq_lengths * self.top_lambda).int()  # [batch_size]
         max_k = int(torch.max(k))  # This is the k for the largest input in the batch, we will need to pad
 
-        topk_1d_indices = torch.topk(mention_logits.view(batch_size, -1), dim=-1, k=max_k).indices  # [batch_size, max_k]
+        _, topk_1d_indices = torch.topk(span_logits.view(batch_size, -1), dim=-1, k=max_k)  # [batch_size, max_k]
         span_mask = self._get_span_mask(batch_size, k, max_k)  # [batch_size, max_k]
+        # pad idx is of the last idx (pad or not)
         topk_1d_indices = (topk_1d_indices * span_mask) + (1 - span_mask) * ((seq_length * max_span_length) - 1)  # We take different k for each example
         sorted_topk_1d_indices, _ = torch.sort(topk_1d_indices, dim=-1)  # [batch_size, max_k]
 
         span_starts = sorted_topk_1d_indices // max_span_length  # [batch_size, max_k]
         span_end_offsets = sorted_topk_1d_indices % max_span_length  # [batch_size, max_k]
 
-        new_mention_logits = mention_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k]
+        span_logits = span_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k]
+        top_k_span_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
+        assert top_k_span_reps.size() == (batch_size, max_k, candidate_mention_reps.size(-1))
 
-        return span_starts, span_end_offsets, span_mask, new_mention_logits, k
+        return span_starts, span_end_offsets, span_mask, span_logits, top_k_span_reps, k
 
     def _get_cluster_labels_after_pruning(self, span_starts, span_end_offsets, all_clusters):
         """
@@ -932,11 +934,9 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         loss, (neg_loss, pos_loss) = self._compute_pos_neg_loss(candidate_mask, labels, mention_logits)
         return loss, {"mention_joint_neg_loss": neg_loss, "mention_joint_pos_loss": pos_loss}
 
-    def _mask_antecedent_logits(self, antecedent_logits, span_mask=None, neighboring_antecedent_mask=None):
+    def _mask_fast_antecedent_logits(self, antecedent_logits, span_mask=None):
         # We now build the matrix for each pair of spans (i,j) - whether j is a candidate for being antecedent of i?
         antecedents_mask = torch.ones_like(antecedent_logits, dtype=self.dtype).tril(diagonal=-1)  # [batch_size, k, k]
-        if neighboring_antecedent_mask is not None:
-            antecedents_mask = antecedents_mask * neighboring_antecedent_mask
         if span_mask is not None:
             antecedents_mask = antecedents_mask * span_mask.unsqueeze(-1)  # [batch_size, k, k]
 
@@ -944,12 +944,20 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
         return antecedent_logits
 
-    def get_slow_antecedent_scores(self, top_k_mention_reps, top_antecedents_reps):
-        batch_size, k, c, _ = top_antecedents_reps.size()
-        similarity_emb = top_k_mention_reps.unsqueeze(2) * top_antecedents_reps  # [batch_size, k, c, 2*dim]
-        target_emb = top_k_mention_reps.unsqueeze(2).expand((batch_size, k, c, -1))
-        pair_emb = torch.cat((target_emb, top_antecedents_reps, similarity_emb), dim=-1)  # [batch_size, k, c, 4*dim]
-        slow_antecedent_scores = self.coref_classifier(pair_emb).squeeze(-1)
+    def get_slow_coref_scores(self, top_k_span_reps, top_coref_reps, antecedents_mask):
+        """
+        :param top_k_span_reps: [batch_size, max_k, 2*dim]
+        :param top_coref_reps: [batch_size, max_k, max_c, 2*dim]
+        :param antecedents_mask: [batch_size, max_k, max_c]
+        :return:
+        """
+        batch_size, max_k, max_c, _ = top_coref_reps.size()
+        similarity_reps = top_k_span_reps.unsqueeze(2) * top_coref_reps  # [batch_size, max_k, max_c, 2*dim]
+        target_reps = top_k_span_reps.unsqueeze(2).expand((batch_size, max_k, max_c, -1))  # [batch_size, max_k, max_c, 2*dim]
+        pair_reps = torch.cat((target_reps, top_coref_reps, similarity_reps), dim=-1)  # [batch_size, max_k, max_c, 6*dim]
+        intermediate_pair_reps = self.coref_mlp(pair_reps)  # [batch_size, max_k, max_c, ffnn_size]
+        slow_antecedent_scores = self.coref_classifier(intermediate_pair_reps).squeeze(-1)  # [batch_size, max_k, max_c]
+        slow_antecedent_scores = mask_tensor(slow_antecedent_scores, antecedents_mask)  # [batch_size, max_k, max_c]
         return slow_antecedent_scores
 
     def _build_coref_logits(self, coref_logits, antecedents_ids, antecedents_mask):
@@ -962,51 +970,82 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         new_coref_logits.to(device=self.device)
         return new_coref_logits
 
-    def _get_top_antecedents_mask(self, batch_size, idx, k, c):
-        pass
+    def _get_topc_antecedent_mask(self, batch_size, max_k, max_c, mention_mask):
+        """
+        :param batch_size: []
+        :param max_c: []
+        :param mention_mask: [batch_size, max_k]
+        :return: [batch_size, max_k, max_c]
+        """
+        antecedent_mask = torch.ones((max_k, max_c), dtype=mention_mask.dtype, device=mention_mask.device)  # [max_k, max_c]
+        antecedent_mask = antecedent_mask.tril(diagonal=-1)  # Each mention can only predict antecedent from earlier mentions
+        antecedent_mask = antecedent_mask.unsqueeze(0).expand((batch_size, max_k, max_c))  # [batch_size, max_k, max_c]
+        antecedent_mask = antecedent_mask * mention_mask.unsqueeze(-1)  # Mask out padded mentions
+        return antecedent_mask
 
+    def _compute_fast_coref_scores(self, top_k_span_reps, top_k_span_logits, mention_mask):
+        """
+        :param top_k_span_reps: [batch_size, max_k, 2*dim]
+        :param top_k_span_logits: [batch_size, max_k]
+        :param mention_mask: [batch_size, max_k]
+        :return:
+        """
+        temp = self.fast_antecedent_classifier(top_k_span_reps)  # [batch_size, max_k, 2*dim]
+        top_k_coref_antecedent_logits = torch.matmul(temp, top_k_span_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+        top_k_coref_span_logits = top_k_span_logits.unsqueeze(-1) + top_k_span_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
+        fast_coref_logits = top_k_coref_span_logits + top_k_coref_antecedent_logits  # [batch_size, max_k, max_k]
+        fast_coref_logits = self._mask_fast_antecedent_logits(fast_coref_logits, mention_mask)  # [batch_size, max_k, max_k]
+
+        return fast_coref_logits
+
+    def _get_top_c_coref_scores(self, fast_coref_logits, mention_mask):
+        batch_size, max_k, _ = fast_coref_logits.size()
+
+        # if c > k
+        max_c = min(self.max_c, max_k)
+        antecedent_mask = self._get_topc_antecedent_mask(batch_size, max_k, max_c, mention_mask)  # [batch_size, max_k, max_c]
+
+        _, top_c_indices = torch.topk(fast_coref_logits, dim=-1, k=max_c)  # [batch_size, max_k, max_c]
+        # pad idx is last idx
+        top_c_indices = (top_c_indices * antecedent_mask) + (1 - antecedent_mask) * (max_k - 1)  # [batch_size, max_k, max_c]
+        antecedents_ids, _ = torch.sort(top_c_indices, dim=-1)  # [batch_size, max_k, max_c]
+        top_fast_coref_logits = torch.gather(fast_coref_logits, dim=-1, index=antecedents_ids)  # [batch_size, max_k, max_c]
+        top_fast_coref_logits = mask_tensor(top_fast_coref_logits, antecedent_mask)  # [batch_size, max_k, max_c]
+        return top_fast_coref_logits, antecedent_mask, antecedents_ids, max_c
 
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, gold_clusters=None, return_all_outputs=False):
         encoder = self._get_encoder()
         outputs = encoder(input_ids, attention_mask=attention_mask)
-        sequence_output = outputs[0]
+        sequence_output = outputs[0]  # [batch_size, seq_len, dim]
 
         candidate_mention_reps, candidate_mask = self.get_span_reps(sequence_output, attention_mask)  # [batch_size, seq_len, max_span_len, 2*dim]
         mention_logits = self.entity_mention_classifier(self.mention_mlp(candidate_mention_reps)).squeeze(-1)  # [batch_size, seq_len, max_span_len]
         mention_logits = mask_tensor(mention_logits, candidate_mask)
 
-        span_starts, span_end_offsets, mention_mask, top_k_mention_logits, k = self._prune_top_lambda_spans(mention_logits, attention_mask)
-        batch_size, max_k = top_k_mention_logits.size()
-        top_k_mention_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
+        span_starts, span_end_offsets, span_mask, top_k_span_logits, top_k_span_reps, k = self._prune_top_lambda_spans(mention_logits, attention_mask, candidate_mention_reps)
+        batch_size, max_k = top_k_span_logits.size()
 
         # Antecedent scores
         # get fast antecedents
-        temp = self.coref_joint_classifier(top_k_mention_reps)  # [batch_size, max_k, 2*dim]
-        top_k_coref_antecedent_logits = torch.matmul(temp, top_k_mention_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
-        top_k_coref_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
-        coref_logits = top_k_coref_mention_logits + top_k_coref_antecedent_logits  # [batch_size, max_k, max_k]
-        coref_logits = self._mask_antecedent_logits(coref_logits, mention_mask)
         antecedents_ids = None
+        fast_coref_logits = self._compute_fast_coref_scores(top_k_span_reps, top_k_span_logits, span_mask)  # [batch_size, max_k, max_k]
         if self.coarse_to_fine:
-            c = torch.min(torch.tensor(self.max_c, device=self.device, dtype=k.dtype).unsqueeze(-1), (k - 1))  # [batch_size, max_k]
-            max_c = torch.max(c).item()
-            span_c_mask = self._get_span_mask(batch_size, c, max_c)  # [batch_size, max_c]
-            antecedents_mask = mention_mask.unsqueeze(-1) * span_c_mask.unsqueeze(-2)  # [batch_size, max_k, max_c]
-            _, top_c_indices = torch.topk(coref_logits, dim=-1, k=max_c)  # [batch_size, max_k, max_c]
-            top_c_indices = (top_c_indices * antecedents_mask) + (1 - antecedents_mask) * (max_k - 1)  # [batch_size, max_k, max_c]
-            antecedents_ids, _ = torch.sort(top_c_indices, dim=-1)  # [batch_size, max_k, max_c]
-            span_dim = top_k_mention_reps.size(-1)
-            index = antecedents_ids.reshape((batch_size, max_k * max_c, 1)).expand((batch_size, max_k * max_c, span_dim))  # [batch_size, max_k*c, 2*dim]
-            top_antecedents_reps = torch.gather(top_k_mention_reps, dim=1, index=index).reshape(batch_size, max_k, max_c, -1)  # [batch_size, max_k, max_c, 2*dim]
-            top_coref_antecedent_logits = self.get_slow_antecedent_scores(top_k_mention_reps, top_antecedents_reps)  # [batch_size, max_k, max_c]
-            top_coref_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
-            top_coref_mention_logits = torch.gather(top_coref_mention_logits, dim=-1, index=antecedents_ids)  # [batch_size, max_k, max_c]
-            coref_logits = top_coref_mention_logits + top_coref_antecedent_logits  # [batch_size, max_k, max_c]
-            coref_logits = mask_tensor(coref_logits, antecedents_mask)  # [batch_size, max_k, max_c]
+            top_fast_coref_logits, general_antecedents_mask, antecedents_ids, max_c = self._get_top_c_coref_scores(fast_coref_logits, span_mask)
+            span_dim = top_k_span_reps.size(-1)
+
+            index = antecedents_ids.view((batch_size, max_k * max_c, 1)).expand((batch_size, max_k * max_c, span_dim))  # [batch_size, max_k*max_c, 2*dim]
+            top_coref_reps = torch.gather(top_k_span_reps, dim=1, index=index).view(batch_size, max_k, max_c, -1)  # [batch_size, max_k, max_c, 2*dim]
+            top_slow_coref_logits = self.get_slow_coref_scores(top_k_span_reps, top_coref_reps, general_antecedents_mask)  # [batch_size, max_k, max_c]
+            top_antecedent_logits = top_fast_coref_logits + top_slow_coref_logits
+            # top_antecedent_weights = torch.nn.functional.softmax(top_antecedent_logits, dim=-1)
+        else:
+            top_antecedent_logits = fast_coref_logits
+
         # adding zero logits for null span
-        coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_c + 1]
-        outputs = (span_starts, span_end_offsets, coref_logits, mention_logits, antecedents_ids)
+        top_antecedent_logits = torch.cat((top_antecedent_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, (max_k + 1) or (max_c + 1)]
+
+        outputs = (span_starts, span_end_offsets, top_antecedent_logits, mention_logits, antecedents_ids)
         if gold_clusters is not None:
             losses = {}
             loss = 0.0
@@ -1021,10 +1060,10 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_end_offsets, gold_clusters)
             if self.coarse_to_fine:
-                labels_after_pruning = torch.gather(labels_after_pruning, dim=-1, index=antecedents_ids)
-                no_antecedents = (torch.sum(labels_after_pruning, dim=-1) == 0).float() * mention_mask
-                labels_after_pruning = torch.cat((labels_after_pruning, no_antecedents.unsqueeze(-1)), dim=-1)
-            end_to_end_loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, mention_mask)
+                labels_after_pruning = torch.gather(labels_after_pruning, dim=-1, index=antecedents_ids)  # [batch_size, max_k, max_c]
+                no_antecedents_indicator = (torch.sum(labels_after_pruning, dim=-1) == 0).float() * span_mask  # [batch_size, max_k, max_c]
+                labels_after_pruning = torch.cat((labels_after_pruning, no_antecedents_indicator.unsqueeze(-1)), dim=-1)  # [batch_size, max_k, max_c + 1]
+            end_to_end_loss = self._get_marginal_log_likelihood_loss(top_antecedent_logits, labels_after_pruning, span_mask)
             losses.update({"end_to_end_loss": end_to_end_loss})
             loss += end_to_end_loss
             losses.update({"loss": loss})

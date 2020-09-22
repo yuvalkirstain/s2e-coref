@@ -80,7 +80,7 @@ def extract_clusters_for_decode(mention_to_antecedent):
 
 
 def mask_tensor(t, mask):
-    t = t + ((1.0 - mask.int()) * -10000.0)
+    t = t + ((1.0 - mask.float()) * -10000.0)
     t = torch.clamp(t, min=-10000.0, max=10000.0)
     return t
 
