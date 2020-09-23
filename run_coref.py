@@ -145,6 +145,7 @@ def main():
                                                                    max_c=args.max_c,
                                                                    independent_start_end_loss=args.independent_start_end_loss,
                                                                    coarse_to_fine=args.coarse_to_fine,
+                                                                   apply_attended_reps=args.apply_attended_reps,
                                                                    args=args)
     else:
         CoreferenceResolutionModel.config_class = config_class

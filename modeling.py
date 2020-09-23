@@ -335,15 +335,15 @@ class CoreferenceResolutionModel(BertPreTrainedModel):
             else:
                 start_mention_mask, end_mention_mask = None, None
             start_coref_loss, start_antecedent_losses = self._compute_antecedent_loss(antecedent_labels=start_antecedent_labels,
-                                                             antecedent_logits=start_coref_logits,
-                                                             attention_mask=attention_mask,
-                                                             mention_mask=start_mention_mask)
+                                                                                      antecedent_logits=start_coref_logits,
+                                                                                      attention_mask=attention_mask,
+                                                                                      mention_mask=start_mention_mask)
             start_antecedent_losses = {"start_" + key: val for key, val in start_antecedent_losses.items()}
             loss_dict.update(start_antecedent_losses)
             end_coref_loss, end_antecedent_losses = self._compute_antecedent_loss(antecedent_labels=end_antecedent_labels,
-                                                           antecedent_logits=end_coref_logits,
-                                                           attention_mask=attention_mask,
-                                                           mention_mask=end_mention_mask)
+                                                                                  antecedent_logits=end_coref_logits,
+                                                                                  attention_mask=attention_mask,
+                                                                                  mention_mask=end_mention_mask)
             end_antecedent_losses = {"end_" + key: val for key, val in end_antecedent_losses.items()}
             loss_dict.update(end_antecedent_losses)
             loss = entity_mention_loss + start_coref_loss + end_coref_loss
@@ -509,7 +509,6 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         no_antecedents = 1 - torch.sum(new_cluster_labels, dim=-1).bool().float()
         new_cluster_labels[:, :, -1] = no_antecedents
         return new_cluster_labels
-
 
     def _compute_joint_entity_mention_loss(self, start_entity_mention_labels, end_entity_mention_labels, mention_logits,
                                            attention_mask=None):
@@ -745,7 +744,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
     def __init__(self, config, args, antecedent_loss, max_span_length, seperate_mention_loss,
                  prune_mention_for_antecedents, normalize_antecedent_loss, only_joint_mention_logits,
                  no_joint_mention_logits, pos_coeff, independent_mention_loss, normalise_loss,
-                 max_c, independent_start_end_loss, coarse_to_fine):
+                 max_c, independent_start_end_loss, coarse_to_fine, apply_attended_reps):
         super().__init__(config)
         self.config = config
         self.num_labels = config.num_labels
@@ -763,6 +762,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         self.max_c = max_c
         self.independent_start_end_loss = independent_start_end_loss
         self.coarse_to_fine = coarse_to_fine
+        self.apply_attended_reps = apply_attended_reps
         self.ffnn_size = 3000
         self.args = args
 
@@ -771,11 +771,14 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         elif args.model_type == "roberta":
             self.roberta = RobertaModel(config)
 
-        self.mention_mlp = FullyConnectedLayer(config, 2 * config.hidden_size, self.ffnn_size, args.dropout_prob)
-        self.coref_mlp = FullyConnectedLayer(config, 6 * config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.attention_classifier = nn.Linear(config.hidden_size, 1)
+        self.span_dim = 3 * config.hidden_size if self.apply_attended_reps else 2 * config.hidden_size
+
+        self.mention_mlp = FullyConnectedLayer(config, self.span_dim, self.ffnn_size, args.dropout_prob)
+        self.coref_mlp = FullyConnectedLayer(config, 3 * self.span_dim, self.ffnn_size, args.dropout_prob)
 
         self.entity_mention_classifier = nn.Linear(self.ffnn_size, 1)  # In paper w_s
-        self.fast_antecedent_classifier = nn.Linear(2 * config.hidden_size, 2 * config.hidden_size)  # M
+        self.fast_antecedent_classifier = nn.Linear(self.span_dim, self.span_dim)  # M
 
         self.coref_classifier = nn.Linear(self.ffnn_size, 1)  # S
 
@@ -789,9 +792,16 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
         raise ValueError("Unsupported model type")
 
-    def get_span_reps(self, sequence_output, attention_mask):
+    def _get_start_end_reps(self, sequence_output, attention_mask):
+        """
+        gets the start and end embeddings of the candidate mention spans
+        :param sequence_output: [batch_size, seq_len, dim]
+        :param attention_mask: [batch_size, seq_len]
+        :return:
+        """
         batch_size, seq_len, dim = sequence_output.size()
-        span_starts = torch.arange(seq_len, device=self.device).reshape(1, -1, 1).expand((batch_size, seq_len, self.max_span_length))  # [batch_size, seq_len, max_span_len]
+        span_starts = torch.arange(seq_len, device=self.device).reshape(1, -1, 1).expand(
+            (batch_size, seq_len, self.max_span_length))  # [batch_size, seq_len, max_span_len]
 
         span_end_offsets = torch.arange(self.max_span_length, device=self.device).reshape(1, 1, -1)  # [1, 1, max_span_len]
         span_ends = span_starts + span_end_offsets  # [batch_size, seq_len, max_span_len]
@@ -802,11 +812,45 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         candidate_mask[:, 0, 0] = True  # the (0,0) span is always valid
 
         size = (batch_size, seq_len * self.max_span_length, dim)
-        start_reps = torch.gather(sequence_output, dim=1, index=span_starts.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * self.max_span_length, dim]
-        end_reps = torch.gather(sequence_output, dim=1, index=span_ends.reshape(batch_size, -1, 1).expand(size))
-        span_reps = torch.cat((start_reps, end_reps), dim=-1)  # [batch_size, max_span_length*seq_len, 2*dim]
+        start_reps = torch.gather(sequence_output, dim=1,
+                                  index=span_starts.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * max_span_length, dim]
+        end_reps = torch.gather(sequence_output, dim=1, index=span_ends.reshape(batch_size, -1, 1).expand(size))  # [batch_size, seq_len * max_span_length, dim]
+        start_reps = start_reps.reshape(batch_size, seq_len, self.max_span_length, -1)  # [batch_size, seq_len, max_span_length, dim]
+        end_reps = end_reps.reshape(batch_size, seq_len, self.max_span_length, -1)  # [batch_size, seq_len, max_span_length, dim]
+        return start_reps, end_reps, span_starts, span_ends, candidate_mask
 
-        return span_reps.reshape(batch_size, seq_len, self.max_span_length, -1), candidate_mask
+    def _get_attended_reps(self, sequence_output, span_starts, span_ends):
+        """
+        gets the attended embeddings of the candidate mention spans
+        :param sequence_output: [batch_size, seq_len, dim]
+        :param span_starts: [batch_size, seq_len, max_span_len, dim]
+        :param span_ends: [batch_size, seq_len, max_span_len, dim]
+        :return attended_reps: [batch_size, seq_len, max_span_len, dim]
+        """
+        batch_size, seq_len, dim = sequence_output.size()
+        doc_range = torch.arange(seq_len, device=self.device).view(1, 1, seq_len).expand(seq_len, self.max_span_length, seq_len).unsqueeze(
+            0)  # [1, seq_len, max_span_length, seq_len]
+        mention_mask = (doc_range >= span_starts.unsqueeze(-1)) & (doc_range <= span_ends.unsqueeze(-1))  # [batch_size, seq_len, max_span_length, seq_len]
+        token_attn = self.attention_classifier(sequence_output).squeeze(-1)  # [batch_size, seq_len]
+        mention_token_attn_logits = mask_tensor(token_attn.view(batch_size, seq_len, 1, 1), mention_mask)
+        mention_token_attn = torch.nn.functional.softmax(mention_token_attn_logits, dim=-1)  # [batch_size, seq_len, max_span_length, seq_len]
+        attended_reps = torch.matmul(mention_token_attn.view(batch_size, -1, seq_len), sequence_output).view(batch_size, seq_len, self.max_span_length, -1)
+        return attended_reps
+
+    def get_span_reps(self, sequence_output, attention_mask):
+        """
+        gets the span embeddings of the candidate mention spans
+        :param sequence_output: [batch_size, seq_len, dim]
+        :param attention_mask: [batch_size, seq_len]
+        :return:
+        """
+        start_reps, end_reps, span_starts, span_ends, candidate_mask = self._get_start_end_reps(sequence_output, attention_mask)
+        if self.apply_attended_reps:
+            attended_reps = self._get_attended_reps(sequence_output, span_starts, span_ends)
+            span_reps = torch.cat((start_reps, end_reps, attended_reps), dim=-1)  # [batch_size, max_span_length, seq_len, span_dim]
+        else:
+            span_reps = torch.cat((start_reps, end_reps), dim=-1)  # [batch_size, max_span_length, seq_len, span_dim]
+        return span_reps, candidate_mask
 
     def _get_span_mask(self, batch_size, k, max_k):
         """
@@ -824,7 +868,7 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         """
         :param span_logits: Shape [batch_size, seq_length, max_span_length]
         :param attention_mask: [batch_size, seq_length]
-        :param candidate_mention_reps: [batch_size, seq_length, max_span_length, 2*dim]
+        :param candidate_mention_reps: [batch_size, seq_length, max_span_length, span_dim]
         :return:
         """
         batch_size, seq_length, max_span_length = span_logits.size()
@@ -843,7 +887,8 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         span_end_offsets = sorted_topk_1d_indices % max_span_length  # [batch_size, max_k]
 
         span_logits = span_logits[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k]
-        top_k_span_reps = candidate_mention_reps[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets] # [batch_size, max_k, 2*dim]
+        top_k_span_reps = candidate_mention_reps[
+            torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_end_offsets]  # [batch_size, max_k, span_dim]
         assert top_k_span_reps.size() == (batch_size, max_k, candidate_mention_reps.size(-1))
 
         return span_starts, span_end_offsets, span_mask, span_logits, top_k_span_reps, k
@@ -855,8 +900,6 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         :param all_clusters: [batch_size, max_cluster_size, max_clusters_num, 2]
         :return: [batch_size, max_k, max_k + 1] - [b, i, j] == 1 if i is antecedent of j
         """
-        # TODO yuval
-        # needs to have a null place and to add 0 to logits for null and to add to labels.
         batch_size, max_k = span_starts.size()
         new_cluster_labels = torch.zeros((batch_size, max_k, max_k + 1), device='cpu')
         all_clusters_cpu = all_clusters.cpu().numpy()
@@ -946,29 +989,19 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
     def get_slow_coref_scores(self, top_k_span_reps, top_coref_reps, antecedents_mask):
         """
-        :param top_k_span_reps: [batch_size, max_k, 2*dim]
-        :param top_coref_reps: [batch_size, max_k, max_c, 2*dim]
+        :param top_k_span_reps: [batch_size, max_k, span_dim]
+        :param top_coref_reps: [batch_size, max_k, max_c, span_dim]
         :param antecedents_mask: [batch_size, max_k, max_c]
         :return:
         """
         batch_size, max_k, max_c, _ = top_coref_reps.size()
-        similarity_reps = top_k_span_reps.unsqueeze(2) * top_coref_reps  # [batch_size, max_k, max_c, 2*dim]
-        target_reps = top_k_span_reps.unsqueeze(2).expand((batch_size, max_k, max_c, -1))  # [batch_size, max_k, max_c, 2*dim]
-        pair_reps = torch.cat((target_reps, top_coref_reps, similarity_reps), dim=-1)  # [batch_size, max_k, max_c, 6*dim]
+        similarity_reps = top_k_span_reps.unsqueeze(2) * top_coref_reps  # [batch_size, max_k, max_c, span_dim]
+        target_reps = top_k_span_reps.unsqueeze(2).expand((batch_size, max_k, max_c, -1))  # [batch_size, max_k, max_c, span_dim]
+        pair_reps = torch.cat((target_reps, top_coref_reps, similarity_reps), dim=-1)  # [batch_size, max_k, max_c, coref_spans_dim]
         intermediate_pair_reps = self.coref_mlp(pair_reps)  # [batch_size, max_k, max_c, ffnn_size]
         slow_antecedent_scores = self.coref_classifier(intermediate_pair_reps).squeeze(-1)  # [batch_size, max_k, max_c]
         slow_antecedent_scores = mask_tensor(slow_antecedent_scores, antecedents_mask)  # [batch_size, max_k, max_c]
         return slow_antecedent_scores
-
-    def _build_coref_logits(self, coref_logits, antecedents_ids, antecedents_mask):
-        batch_size, k, c = coref_logits.size()
-        new_coref_logits = torch.ones(batch_size, k, k).cpu() * -10000.0
-        for mention_idx, row in enumerate(antecedents_ids.tolist()):
-            for col, antecedent_idx in enumerate(row):
-                if antecedents_mask[mention_idx, col]:
-                    new_coref_logits[:, mention_idx, antecedent_idx] = coref_logits[:, mention_idx, antecedent_idx]
-        new_coref_logits.to(device=self.device)
-        return new_coref_logits
 
     def _get_topc_antecedent_mask(self, batch_size, max_k, max_c, mention_mask):
         """
@@ -985,12 +1018,12 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
 
     def _compute_fast_coref_scores(self, top_k_span_reps, top_k_span_logits, mention_mask):
         """
-        :param top_k_span_reps: [batch_size, max_k, 2*dim]
+        :param top_k_span_reps: [batch_size, max_k, span_dim]
         :param top_k_span_logits: [batch_size, max_k]
         :param mention_mask: [batch_size, max_k]
         :return:
         """
-        temp = self.fast_antecedent_classifier(top_k_span_reps)  # [batch_size, max_k, 2*dim]
+        temp = self.fast_antecedent_classifier(top_k_span_reps)  # [batch_size, max_k, span_dim]
         top_k_coref_antecedent_logits = torch.matmul(temp, top_k_span_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
         top_k_coref_span_logits = top_k_span_logits.unsqueeze(-1) + top_k_span_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         fast_coref_logits = top_k_coref_span_logits + top_k_coref_antecedent_logits  # [batch_size, max_k, max_k]
@@ -1019,11 +1052,12 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
         outputs = encoder(input_ids, attention_mask=attention_mask)
         sequence_output = outputs[0]  # [batch_size, seq_len, dim]
 
-        candidate_mention_reps, candidate_mask = self.get_span_reps(sequence_output, attention_mask)  # [batch_size, seq_len, max_span_len, 2*dim]
+        candidate_mention_reps, candidate_mask = self.get_span_reps(sequence_output, attention_mask)  # [batch_size, seq_len, max_span_len, span_dim]
         mention_logits = self.entity_mention_classifier(self.mention_mlp(candidate_mention_reps)).squeeze(-1)  # [batch_size, seq_len, max_span_len]
         mention_logits = mask_tensor(mention_logits, candidate_mask)
 
-        span_starts, span_end_offsets, span_mask, top_k_span_logits, top_k_span_reps, k = self._prune_top_lambda_spans(mention_logits, attention_mask, candidate_mention_reps)
+        span_starts, span_end_offsets, span_mask, top_k_span_logits, top_k_span_reps, k = self._prune_top_lambda_spans(mention_logits, attention_mask,
+                                                                                                                       candidate_mention_reps)
         batch_size, max_k = top_k_span_logits.size()
 
         # Antecedent scores
@@ -1034,8 +1068,8 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
             top_fast_coref_logits, general_antecedents_mask, antecedents_ids, max_c = self._get_top_c_coref_scores(fast_coref_logits, span_mask)
             span_dim = top_k_span_reps.size(-1)
 
-            index = antecedents_ids.view((batch_size, max_k * max_c, 1)).expand((batch_size, max_k * max_c, span_dim))  # [batch_size, max_k*max_c, 2*dim]
-            top_coref_reps = torch.gather(top_k_span_reps, dim=1, index=index).view(batch_size, max_k, max_c, -1)  # [batch_size, max_k, max_c, 2*dim]
+            index = antecedents_ids.view((batch_size, max_k * max_c, 1)).expand((batch_size, max_k * max_c, span_dim))  # [batch_size, max_k*max_c, span_dim]
+            top_coref_reps = torch.gather(top_k_span_reps, dim=1, index=index).view(batch_size, max_k, max_c, -1)  # [batch_size, max_k, max_c, span_dim]
             top_slow_coref_logits = self.get_slow_coref_scores(top_k_span_reps, top_coref_reps, general_antecedents_mask)  # [batch_size, max_k, max_c]
             top_antecedent_logits = top_fast_coref_logits + top_slow_coref_logits
             # top_antecedent_weights = torch.nn.functional.softmax(top_antecedent_logits, dim=-1)
@@ -1043,7 +1077,8 @@ class BaselineCoreferenceResolutionModel(BertPreTrainedModel):
             top_antecedent_logits = fast_coref_logits
 
         # adding zero logits for null span
-        top_antecedent_logits = torch.cat((top_antecedent_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, (max_k + 1) or (max_c + 1)]
+        top_antecedent_logits = torch.cat((top_antecedent_logits, torch.zeros((batch_size, max_k, 1), device=self.device)),
+                                          dim=-1)  # [batch_size, max_k, (max_k + 1) or (max_c + 1)]
 
         outputs = (span_starts, span_end_offsets, top_antecedent_logits, mention_logits, antecedents_ids)
         if gold_clusters is not None:

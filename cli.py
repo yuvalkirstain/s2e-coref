@@ -180,7 +180,7 @@ def parse_args():
 
     parser.add_argument("--coarse_to_fine", action="store_true")
     parser.add_argument("--max_c", type=int, default=50)
-
+    parser.add_argument("--apply_attended_reps", action="store_true")
 
     args = parser.parse_args()
     return args
