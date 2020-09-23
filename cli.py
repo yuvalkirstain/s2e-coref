@@ -156,7 +156,6 @@ def parse_args():
     parser.add_argument("--only_joint_mention_logits", action='store_true')
     parser.add_argument("--no_joint_mention_logits", action='store_true')
 
-
     parser.add_argument("--use_mention_logits_for_antecedents", action="store_true")
     parser.add_argument("--use_mention_oracle", action="store_true")
     parser.add_argument("--use_crossing_mentions_pruning", action="store_true")
@@ -180,7 +179,7 @@ def parse_args():
 
     parser.add_argument("--coarse_to_fine", action="store_true")
     parser.add_argument("--max_c", type=int, default=50)
-
+    parser.add_argument("--ffnn_size", type=int, default=3072)
 
     args = parser.parse_args()
     return args

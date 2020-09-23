@@ -368,6 +368,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.antecedent_loss = antecedent_loss  # can be either allowed loss or bce
         self.max_span_length = max_span_length
         self.top_lambda = args.top_lambda
+        self.ffnn_size = args.ffnn_size
         # self.seperate_mention_loss = seperate_mention_loss
         # self.prune_mention_for_antecedents = prune_mention_for_antecedents
         self.normalize_antecedent_loss = normalize_antecedent_loss
@@ -385,17 +386,17 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         elif args.model_type == "roberta":
             self.roberta = RobertaModel(config)
 
-        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
-        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
-        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
-        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, config.hidden_size, args.dropout_prob)
+        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
 
-        self.entity_mention_start_classifier = nn.Linear(config.hidden_size, 1)  # In paper w_s
-        self.entity_mention_end_classifier = nn.Linear(config.hidden_size, 1)  # w_e
-        self.entity_mention_joint_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # M
+        self.entity_mention_start_classifier = nn.Linear(self.ffnn_size, 1)  # In paper w_s
+        self.entity_mention_end_classifier = nn.Linear(self.ffnn_size, 1)  # w_e
+        self.entity_mention_joint_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # M
 
-        self.antecedent_start_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # S
-        self.antecedent_end_classifier = nn.Linear(config.hidden_size, config.hidden_size)  # E
+        self.antecedent_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
+        self.antecedent_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
 
         self.init_weights()
 
