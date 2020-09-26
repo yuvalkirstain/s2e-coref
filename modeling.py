@@ -577,7 +577,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         mention_mask = self._get_mention_mask(mention_logits)  # [batch_size, seq_length, seq_length]
         mention_logits = mask_tensor(mention_logits, mention_mask)  # [batch_size, seq_length, seq_length]
 
-        span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_top_lambda_spans(mention_logits, attention_mask)
+        span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_topk_spans(mention_logits, attention_mask)
 
         batch_size, _, dim = start_coref_reps.size()
         max_k = span_starts.size(-1)
