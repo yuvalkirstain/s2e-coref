@@ -88,15 +88,13 @@ def mask_tensor(t, mask):
 def write_meta_data(output_dir, args):
     output_path = os.path.join(output_dir, "meta.json")
     repo = git.Repo(search_parent_directories=True)
-    sha = repo.head.object.hexsha
-    branch = repo.head.ref.name
+    hexsha = repo.head.commit.hexsha
     ts = time()
     print(f"Writing {output_path}")
     with open(output_path, mode='w') as f:
         json.dump(
             {
-                'git_branch': branch,
-                'git_short_sha': sha,
+                'git_hexsha': hexsha,
                 'args': {k: str(v) for k, v in args.__dict__.items()},
                 'date': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
             },

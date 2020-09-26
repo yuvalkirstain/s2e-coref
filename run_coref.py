@@ -113,18 +113,6 @@ def main():
         model = EndToEndCoreferenceResolutionModel.from_pretrained(args.model_name_or_path,
                                                                    config=config,
                                                                    cache_dir=args.cache_dir,
-                                                                   antecedent_loss=args.antecedent_loss,
-                                                                   max_span_length=args.max_span_length,
-                                                                   seperate_mention_loss=args.seperate_mention_loss,
-                                                                   prune_mention_for_antecedents=args.prune_mention_for_antecedents,
-                                                                   normalize_antecedent_loss=args.normalize_antecedent_loss,
-                                                                   only_joint_mention_logits=args.only_joint_mention_logits,
-                                                                   no_joint_mention_logits=args.no_joint_mention_logits,
-                                                                   pos_coeff=args.pos_coeff,
-                                                                   independent_mention_loss=args.independent_mention_loss,
-                                                                   normalise_loss=args.normalise_loss,
-                                                                   num_neighboring_antecedents=args.max_c,
-                                                                   independent_start_end_loss=args.independent_start_end_loss,
                                                                    args=args)
     elif args.baseline:
         BaselineCoreferenceResolutionModel.config_class = config_class
