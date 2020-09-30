@@ -367,6 +367,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.independent_mention_loss = args.independent_mention_loss
         self.normalise_loss = args.normalise_loss
         self.num_neighboring_antecedents = args.num_neighboring_antecedents
+        self.separate_mention_logits = args.separate_mention_logits
         self.args = args
 
         if args.model_type == "longformer":
@@ -382,6 +383,11 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.entity_mention_start_classifier = nn.Linear(self.ffnn_size, 1)  # In paper w_s
         self.entity_mention_end_classifier = nn.Linear(self.ffnn_size, 1)  # w_e
         self.entity_mention_joint_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # M
+
+        if self.separate_mention_logits:
+            self.entity_mention_start_classifier_for_coref = nn.Linear(self.ffnn_size, 1)  # In paper w_s
+            self.entity_mention_end_classifier_for_coref = nn.Linear(self.ffnn_size, 1)  # w_e
+            self.entity_mention_joint_classifier_for_coref = nn.Linear(self.ffnn_size, self.ffnn_size)  # M
 
         self.antecedent_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
         self.antecedent_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
@@ -552,6 +558,32 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         mention_mask = mention_mask.tril(diagonal=self.max_span_length - 1)
         return mention_mask
 
+    def _calc_mention_logits(self, start_mention_reps, end_mention_reps):
+        start_mention_logits = self.entity_mention_start_classifier(start_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+        end_mention_logits = self.entity_mention_end_classifier(end_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+
+        temp = self.entity_mention_joint_classifier(start_mention_reps)  # [batch_size, seq_length]
+        joint_mention_logits = torch.matmul(temp,
+                                            end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+
+        mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
+        mention_mask = self._get_mention_mask(mention_logits)  # [batch_size, seq_length, seq_length]
+        mention_logits = mask_tensor(mention_logits, mention_mask)  # [batch_size, seq_length, seq_length]
+        return mention_logits
+
+    def _calc_mention_logits_for_coref(self, start_mention_reps, end_mention_reps):
+        start_mention_logits = self.entity_mention_start_classifier_for_coref(start_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+        end_mention_logits = self.entity_mention_end_classifier_for_coref(end_mention_reps).squeeze(-1)  # [batch_size, seq_length]
+
+        temp = self.entity_mention_joint_classifier_for_coref(start_mention_reps)  # [batch_size, seq_length]
+        joint_mention_logits = torch.matmul(temp,
+                                            end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
+
+        mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
+        mention_mask = self._get_mention_mask(mention_logits)  # [batch_size, seq_length, seq_length]
+        mention_logits = mask_tensor(mention_logits, mention_mask)  # [batch_size, seq_length, seq_length]
+        return mention_logits
+
     def forward(self, input_ids, attention_mask=None, start_entity_mention_labels=None, end_entity_mention_labels=None,
                 start_antecedent_labels=None, end_antecedent_labels=None, gold_clusters=None, return_all_outputs=False):
         encoder = self._get_encoder()
@@ -564,20 +596,14 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         start_coref_reps = self.start_coref_mlp(sequence_output)
         end_coref_reps = self.end_coref_mlp(sequence_output)
 
-        # Entity mention scores
-        start_mention_logits = self.entity_mention_start_classifier(start_mention_reps).squeeze(-1)  # [batch_size, seq_length]
-        end_mention_logits = self.entity_mention_end_classifier(end_mention_reps).squeeze(-1)  # [batch_size, seq_length]
-
-        temp = self.entity_mention_joint_classifier(start_mention_reps)  # [batch_size, seq_length]
-        joint_mention_logits = torch.matmul(temp,
-                                            end_mention_reps.permute([0, 2, 1]))  # [batch_size, seq_length, seq_length]
-
-        mention_logits = joint_mention_logits + start_mention_logits.unsqueeze(-1) + end_mention_logits.unsqueeze(-2)
-
-        mention_mask = self._get_mention_mask(mention_logits)  # [batch_size, seq_length, seq_length]
-        mention_logits = mask_tensor(mention_logits, mention_mask)  # [batch_size, seq_length, seq_length]
-
+        # Entity mention scores for pruning
+        mention_logits = self._calc_mention_logits(start_mention_reps, end_mention_reps)
         span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_topk_spans(mention_logits, attention_mask)
+
+        if self.separate_mention_logits:
+            batch_size, max_k = span_ends.size()
+            mention_logits_for_coref = self._calc_mention_logits_for_coref(start_mention_reps, end_mention_reps)
+            top_k_mention_logits = mention_logits_for_coref[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_ends]  # [batch_size, max_k]
 
         batch_size, _, dim = start_coref_reps.size()
         max_k = span_starts.size(-1)
