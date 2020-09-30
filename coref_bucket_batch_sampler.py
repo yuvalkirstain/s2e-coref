@@ -25,15 +25,15 @@ class BucketBatchSampler(DataLoader):
             sorting_keys: List[str] = None,
             padding_noise: float = 0.1,
             drop_last: bool = False,
+            is_eval: bool = False,
     ):
-
         self.sorting_keys = sorting_keys
         self.padding_noise = padding_noise
         self.max_total_seq_len = max_total_seq_len
         self.data_source = data_source
         data_source.examples.sort(key=lambda x: len(x.token_ids), reverse=True)
         self.drop_last = drop_last
-        self.batches = self.prepare_batches()
+        self.batches = self.prepare_batches() if not is_eval else self.prepare_eval_batches()
 
     def prepare_batches(self):
         batches = []
@@ -55,16 +55,6 @@ class BucketBatchSampler(DataLoader):
         batches.append(batch)
         return batches
 
-    def _argsort_by_padding(
-            self, instances: Iterable[CorefExample]
-    ) -> Sequence[Tuple[CorefExample, int]]:
-        """
-        Argsorts the instances by their padding lengths, using the keys in
-        `sorting_keys` (in the order in which they are provided). `sorting_keys`
-        is a list of `(field_name, padding_key)` tuples.
-        """
-        x = 5
-        return
 
     def __iter__(self) -> Iterable[List[int]]:
         random.shuffle(self.batches)
@@ -76,4 +66,11 @@ class BucketBatchSampler(DataLoader):
 
     def calc_effective_per_example_batch_len(self, example_len):
         return math.ceil((example_len + 2) / 512) * 512
+
+    def prepare_eval_batches(self):
+        batches = []
+        for elem in self.data_source:
+            batch = self.data_source.pad_batch([elem], len(elem.token_ids))
+            batches.append(batch)
+        return batches
 

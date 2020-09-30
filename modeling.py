@@ -605,7 +605,10 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         # adding zero logits for null span
         coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)),
                                  dim=-1)  # [batch_size, max_k, max_k + 1]
-        outputs = (span_starts, span_ends, coref_logits, mention_logits)
+        if return_all_outputs:
+            outputs = (span_starts, span_ends, coref_logits, mention_logits)
+        else:
+            outputs = tuple()
         if gold_clusters is not None:
             losses = {}
             loss = 0.0
