@@ -182,6 +182,7 @@ def parse_args():
     parser.add_argument("--ffnn_size", type=int, default=3072)
     parser.add_argument("--apply_attended_reps", action="store_true")
     parser.add_argument("--separate_mention_logits", action="store_true")
+    parser.add_argument("--separate_mention_reps", action="store_true")
 
     parser.add_argument("--save_if_best", action="store_true")
 

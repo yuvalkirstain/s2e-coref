@@ -368,6 +368,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.normalise_loss = args.normalise_loss
         self.num_neighboring_antecedents = args.num_neighboring_antecedents
         self.separate_mention_logits = args.separate_mention_logits
+        self.separate_mention_reps = args.separate_mention_reps
         self.args = args
 
         if args.model_type == "longformer":
@@ -377,6 +378,11 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
         self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+
+        if self.separate_mention_reps:
+            self.start_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+            self.end_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+
         self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
         self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
 
@@ -593,6 +599,9 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         # Compute representations
         start_mention_reps = self.start_mention_mlp(sequence_output)
         end_mention_reps = self.end_mention_mlp(sequence_output)
+        if self.separate_mention_reps:
+            start_mention_reps_for_coref = self.start_mention_mlp_for_coref(sequence_output)
+            end_mention_reps_for_coref = self.end_mention_mlp_for_coref(sequence_output)
         start_coref_reps = self.start_coref_mlp(sequence_output)
         end_coref_reps = self.end_coref_mlp(sequence_output)
 
@@ -601,8 +610,11 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_topk_spans(mention_logits, attention_mask)
 
         if self.separate_mention_logits:
+            if self.separate_mention_reps:
+                mention_logits_for_coref = self._calc_mention_logits_for_coref(start_mention_reps_for_coref, end_mention_reps_for_coref)
+            else:
+                mention_logits_for_coref = self._calc_mention_logits_for_coref(start_mention_reps, end_mention_reps)
             batch_size, max_k = span_ends.size()
-            mention_logits_for_coref = self._calc_mention_logits_for_coref(start_mention_reps, end_mention_reps)
             top_k_mention_logits = mention_logits_for_coref[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_ends]  # [batch_size, max_k]
 
         batch_size, _, dim = start_coref_reps.size()
