@@ -183,6 +183,7 @@ def parse_args():
     parser.add_argument("--apply_attended_reps", action="store_true")
     parser.add_argument("--separate_mention_logits", action="store_true")
     parser.add_argument("--separate_mention_reps", action="store_true")
+    parser.add_argument("--apply_antecedent_start_end", action="store_true")
 
     parser.add_argument("--save_if_best", action="store_true")
 

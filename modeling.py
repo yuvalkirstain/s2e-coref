@@ -369,6 +369,7 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         self.num_neighboring_antecedents = args.num_neighboring_antecedents
         self.separate_mention_logits = args.separate_mention_logits
         self.separate_mention_reps = args.separate_mention_reps
+        self.apply_antecedent_start_end = args.apply_antecedent_start_end
         self.args = args
 
         if args.model_type == "longformer":
@@ -397,6 +398,10 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         self.antecedent_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
         self.antecedent_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
+
+        if self.apply_antecedent_start_end:
+            self.antecedent_start_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
+            self.antecedent_end_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
 
         self.init_weights()
 
@@ -615,7 +620,8 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
             else:
                 mention_logits_for_coref = self._calc_mention_logits_for_coref(start_mention_reps, end_mention_reps)
             batch_size, max_k = span_ends.size()
-            top_k_mention_logits = mention_logits_for_coref[torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_ends]  # [batch_size, max_k]
+            top_k_mention_logits = mention_logits_for_coref[
+                torch.arange(batch_size).unsqueeze(-1).expand(batch_size, max_k), span_starts, span_ends]  # [batch_size, max_k]
 
         batch_size, _, dim = start_coref_reps.size()
         max_k = span_starts.size(-1)
@@ -633,6 +639,15 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
 
         top_k_mention_logits = top_k_mention_logits.unsqueeze(-1) + top_k_mention_logits.unsqueeze(-2)  # [batch_size, max_k, max_k]
         coref_logits = top_k_mention_logits + top_k_start_coref_logits + top_k_end_coref_logits  # [batch_size, max_k, max_k]
+
+        if self.apply_antecedent_start_end:
+            temp = self.antecedent_start_end_classifier(top_k_start_coref_reps)  # [batch_size, max_k, dim]
+            top_k_start_end_coref_logits = torch.matmul(temp,
+                                                        top_k_end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+            temp = self.antecedent_end_start_classifier(top_k_end_coref_reps)  # [batch_size, max_k, dim]
+            top_k_end_start_coref_logits = torch.matmul(temp,
+                                                        top_k_start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+            coref_logits = coref_logits + top_k_start_end_coref_logits + top_k_end_start_coref_logits
 
         if self.num_neighboring_antecedents <= 0:
             neighboring_antecedents_mask = None
