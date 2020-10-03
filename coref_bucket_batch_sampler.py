@@ -25,7 +25,7 @@ class BucketBatchSampler(DataLoader):
             sorting_keys: List[str] = None,
             padding_noise: float = 0.1,
             drop_last: bool = False,
-            is_eval: bool = False,
+            batch_size_1: bool = False,
     ):
         self.sorting_keys = sorting_keys
         self.padding_noise = padding_noise
@@ -33,7 +33,7 @@ class BucketBatchSampler(DataLoader):
         self.data_source = data_source
         data_source.examples.sort(key=lambda x: len(x.token_ids), reverse=True)
         self.drop_last = drop_last
-        self.batches = self.prepare_batches() if not is_eval else self.prepare_eval_batches()
+        self.batches = self.prepare_batches() if not batch_size_1 else self.prepare_eval_batches()
 
     def prepare_batches(self):
         batches = []

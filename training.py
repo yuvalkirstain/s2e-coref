@@ -25,7 +25,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     #    tb_writer = SummaryWriter()
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-    train_dataloader = BucketBatchSampler(train_dataset, max_total_seq_len=args.max_total_seq_len)
+    train_dataloader = BucketBatchSampler(train_dataset, max_total_seq_len=args.max_total_seq_len, batch_size_1=args.batch_size_1)
 
     if args.max_steps > 0:
         t_total = args.max_steps

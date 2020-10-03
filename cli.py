@@ -186,6 +186,7 @@ def parse_args():
     parser.add_argument("--apply_antecedent_start_end", action="store_true")
 
     parser.add_argument("--save_if_best", action="store_true")
+    parser.add_argument("--batch_size_1", action="store_true")
 
     args = parser.parse_args()
     return args
