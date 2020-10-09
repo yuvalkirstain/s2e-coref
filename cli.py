@@ -59,10 +59,10 @@ def parse_args():
              + "If no data dir or train/predict files are specified, will run with tensorflow_datasets.",
     )
     parser.add_argument(
-        "--config_name", default=None, type=str, help="Pretrained config name or path if not the same as model_name"
+        "--config_name", default="allenai/longformer-base-4096", type=str, help="Pretrained config name or path if not the same as model_name"
     )
     parser.add_argument("--tokenizer_name",
-                        default=None,
+                        default="allenai/longformer-base-4096",
                         type=str,
                         help="Pretrained tokenizer name or path if not the same as model_name")
     parser.add_argument("--cache_dir",
