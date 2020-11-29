@@ -187,6 +187,7 @@ def parse_args():
 
     parser.add_argument("--save_if_best", action="store_true")
     parser.add_argument("--batch_size_1", action="store_true")
+    parser.add_argument("--max_grad_norm", type=float, default=1.0)
 
     args = parser.parse_args()
     return args

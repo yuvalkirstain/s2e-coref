@@ -179,6 +179,10 @@ def train(args, train_dataset, model, tokenizer, evaluator):
             else:
                 loss.backward()
 
+            if args.max_grad_norm != 0:
+                for m in optimizer_grouped_parameters:
+                    torch.nn.utils.clip_grad_norm_(m["params"], args.max_grad_norm)
+
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 # if args.amp:
