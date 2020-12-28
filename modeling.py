@@ -49,31 +49,33 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         elif args.model_type == "roberta":
             self.roberta = RobertaModel(config)
 
-        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
-        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.do_mlps = self.ffnn_size > 0
+
+        self.start_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
+        self.end_mention_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
 
         if self.separate_mention_reps:
-            self.start_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
-            self.end_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+            self.start_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
+            self.end_mention_mlp_for_coref = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
 
-        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
-        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob)
+        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
+        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
 
-        self.entity_mention_start_classifier = nn.Linear(self.ffnn_size, 1)  # In paper w_s
-        self.entity_mention_end_classifier = nn.Linear(self.ffnn_size, 1)  # w_e
-        self.entity_mention_joint_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # M
+        self.entity_mention_start_classifier = nn.Linear(self.ffnn_size, 1) if self.do_mlps else nn.Linear(config.hidden_size, 1)  # In paper w_s
+        self.entity_mention_end_classifier = nn.Linear(self.ffnn_size, 1) if self.do_mlps else nn.Linear(config.hidden_size, 1)  # w_e
+        self.entity_mention_joint_classifier = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # M
 
         if self.separate_mention_logits:
-            self.entity_mention_start_classifier_for_coref = nn.Linear(self.ffnn_size, 1)  # In paper w_s
-            self.entity_mention_end_classifier_for_coref = nn.Linear(self.ffnn_size, 1)  # w_e
-            self.entity_mention_joint_classifier_for_coref = nn.Linear(self.ffnn_size, self.ffnn_size)  # M
+            self.entity_mention_start_classifier_for_coref = nn.Linear(self.ffnn_size, 1) if self.do_mlps else nn.Linear(config.hidden_size, 1)  # In paper w_s
+            self.entity_mention_end_classifier_for_coref = nn.Linear(self.ffnn_size, 1) if self.do_mlps else nn.Linear(config.hidden_size, 1)  # w_e
+            self.entity_mention_joint_classifier_for_coref = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # M
 
-        self.antecedent_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
-        self.antecedent_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
+        self.antecedent_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # S
+        self.antecedent_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # E
 
         if self.apply_antecedent_start_end:
-            self.antecedent_start_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # S
-            self.antecedent_end_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size)  # E
+            self.antecedent_start_end_classifier = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # S
+            self.antecedent_end_start_classifier = nn.Linear(self.ffnn_size, self.ffnn_size) if self.do_mlps else nn.Linear(config.hidden_size, config.hidden_size)  # E
 
         self.init_weights()
 
@@ -272,14 +274,13 @@ class EndToEndCoreferenceResolutionModel(BertPreTrainedModel):
         sequence_output = outputs[0]  # [batch_size, seq_len, dim]
 
         # Compute representations
-        start_mention_reps = self.start_mention_mlp(sequence_output)
-        end_mention_reps = self.end_mention_mlp(sequence_output)
-        if self.separate_mention_reps:
-            start_mention_reps_for_coref = self.start_mention_mlp_for_coref(sequence_output)
-            end_mention_reps_for_coref = self.end_mention_mlp_for_coref(sequence_output)
-        start_coref_reps = self.start_coref_mlp(sequence_output)
-        end_coref_reps = self.end_coref_mlp(sequence_output)
-
+        if self.do_mlps:
+            start_mention_reps = self.start_mention_mlp(sequence_output)
+            end_mention_reps = self.end_mention_mlp(sequence_output)
+            start_coref_reps = self.start_coref_mlp(sequence_output)
+            end_coref_reps = self.end_coref_mlp(sequence_output)
+        else:
+            start_mention_reps, end_mention_reps, start_coref_reps, end_coref_reps = sequence_output, sequence_output, sequence_output, sequence_output
         # Entity mention scores for pruning
         mention_logits = self._calc_mention_logits(start_mention_reps, end_mention_reps)
         span_starts, span_ends, span_mask, top_k_mention_logits = self._prune_topk_spans(mention_logits, attention_mask)

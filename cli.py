@@ -179,7 +179,7 @@ def parse_args():
 
     parser.add_argument("--coarse_to_fine", action="store_true")
     parser.add_argument("--max_c", type=int, default=50)
-    parser.add_argument("--ffnn_size", type=int, default=3072)
+    parser.add_argument("--ffnn_size", type=int, default=3000)
     parser.add_argument("--apply_attended_reps", action="store_true")
     parser.add_argument("--separate_mention_logits", action="store_true")
     parser.add_argument("--separate_mention_reps", action="store_true")
