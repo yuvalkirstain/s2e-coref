@@ -15,14 +15,12 @@ CorefExample = namedtuple("CorefExample", ["token_ids", "clusters"])
 SPEAKER_START = 49518  # 'Ġ#####'
 SPEAKER_END = 22560  # 'Ġ###'
 
-# TODO - Should be magic numbers?
 PAD_ID_FOR_COREF = -1
 NULL_ID_FOR_COREF = 0
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: bucketization
 class CorefDataset(Dataset):
     def __init__(self, file_path, tokenizer, max_seq_length=-1):
         self.tokenizer = tokenizer
@@ -41,13 +39,14 @@ class CorefDataset(Dataset):
         with open(file_path, 'r') as f:
             for line in f:
                 d = json.loads(line.strip())
+                doc_key = d["doc_key"]
                 input_words = flatten_list_of_lists(d["sentences"])
                 clusters = d["clusters"]
                 max_mention_num = max(max_mention_num, len(flatten_list_of_lists(clusters)))
                 max_cluster_size = max(max_cluster_size, max(len(cluster) for cluster in clusters) if clusters else 0)
                 max_num_clusters = max(max_num_clusters, len(clusters) if clusters else 0)
                 speakers = flatten_list_of_lists(d["speakers"])
-                examples.append((input_words, clusters, speakers))
+                examples.append((doc_key, input_words, clusters, speakers))
         return examples, max_mention_num, max_cluster_size, max_num_clusters
 
     def _add_speaker_info(self):
@@ -57,9 +56,10 @@ class CorefDataset(Dataset):
         coref_examples = []
         lengths = []
         num_examples_filtered = 0
-        for words, clusters, speakers in examples:
+        for doc_key, words, clusters, speakers in examples:
             word_idx_to_start_token_idx = dict()
             word_idx_to_end_token_idx = dict()
+            end_token_idx_to_word_idx = dict()
 
             token_ids = []
             last_speaker = None
@@ -71,25 +71,26 @@ class CorefDataset(Dataset):
                     last_speaker = speaker
                 else:
                     speaker_prefix = []
+                for i in range(len(speaker_prefix)):
+                    end_token_idx_to_word_idx[len(token_ids) + i] = idx
                 token_ids.extend(speaker_prefix)
                 word_idx_to_start_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
+                for i in range(len(tokenized)):
+                    end_token_idx_to_word_idx[len(token_ids) + i] = idx
                 token_ids.extend(tokenized)
                 word_idx_to_end_token_idx[idx] = len(token_ids)  # old_seq_len + 1 (for <s>) + len(tokenized_word) - 1 (we start counting from zero) = len(token_ids)
 
             if 0 < self.max_seq_length < len(token_ids):
                 num_examples_filtered += 1
                 continue
-            # bad_ids = [49518, 111, 22560, 3465, 1489, 692, 25586, 12417, 8,
-            #            5791, 1489, 692, 23470, 12342, 33, 11908, 307, 128]
-            # if not set(bad_ids).issubset(set(token_ids)):
-            #     continue
+
             new_clusters = [
                 [(word_idx_to_start_token_idx[start], word_idx_to_end_token_idx[end]) for start, end in cluster] for
                 cluster in clusters]
             lengths.append(len(token_ids))
 
-            coref_examples.append(CorefExample(token_ids=token_ids, clusters=new_clusters))
+            coref_examples.append(((doc_key, list(end_token_idx_to_word_idx.values())), CorefExample(token_ids=token_ids, clusters=new_clusters)))
         return coref_examples, lengths, num_examples_filtered
 
     def __len__(self):
@@ -192,7 +193,6 @@ def get_dataset(args, tokenizer, evaluate=False):
 
 
 if __name__ == "__main__":
-    # TODO get max_seq_len and max_mention_num
     tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
     dataset = CorefDataset(file_path="data/train.english.jsonlines",
                            tokenizer=tokenizer, max_seq_length=4500)

@@ -3,7 +3,7 @@ import os
 import logging
 import random
 import numpy as np
-
+from torch.utils.tensorboard import SummaryWriter
 import torch
 from torch.utils.data import DataLoader
 from coref_bucket_batch_sampler import BucketBatchSampler
@@ -23,6 +23,9 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     """ Train the model """
     # if args.local_rank in [-1, 0]:
     #    tb_writer = SummaryWriter()
+    tb_path = os.path.join(args.tensorboard_dir, os.path.basename(args.output_dir))
+    tb_writer = SummaryWriter(tb_path, flush_secs=30)
+    logger.info('Tensorboard summary path: %s' % tb_path)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_dataloader = BucketBatchSampler(train_dataset, max_total_seq_len=args.max_total_seq_len, batch_size_1=args.batch_size_1)
@@ -156,32 +159,28 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                             return_all_outputs=False)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             losses = outputs[-1]
-
+            logger.info(f"loss - {loss.item()}")
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
                 losses = {key: val.mean() for key, val in losses.items()}
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            if (loss > 1000 or str(loss.item()) == 'nan'):
-                logger.info(f"\nglobal_step: {global_step}")
-                for key, value in losses.items():
-                    logger.info(f"\n{key}: {value}")
-                for example_input_ids in input_ids:
-                    logger.info(tokenizer.convert_ids_to_tokens(example_input_ids)[:20])
-                log_batch_eval_results(outputs)
-                for example_input_ids in input_ids:
-                    logger.info(example_input_ids[:20])
+            # if (loss > 1000 or str(loss.item()) == 'nan'):
+            #     logger.info(f"\nglobal_step: {global_step}")
+            #     for key, value in losses.items():
+            #         logger.info(f"\n{key}: {value}")
+            #     for example_input_ids in input_ids:
+            #         logger.info(tokenizer.convert_ids_to_tokens(example_input_ids)[:20])
+            #     log_batch_eval_results(outputs)
+            #     for example_input_ids in input_ids:
+            #         logger.info(example_input_ids[:20])
 
             if args.amp:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
                 loss.backward()
-
-            if args.max_grad_norm != 0:
-                for m in optimizer_grouped_parameters:
-                    torch.nn.utils.clip_grad_norm_(m["params"], args.max_grad_norm)
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -197,17 +196,33 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     logger.info(f"\nloss step {global_step}: {(tr_loss - logging_loss) / args.logging_steps}")
+                    tb_writer.add_scalar('Training_Loss', (tr_loss - logging_loss) / args.logging_steps, global_step)
                     for key, value in losses.items():
                         logger.info(f"\n{key}: {value}")
 
                     logging_loss = tr_loss
 
                 if args.local_rank in [-1, 0] and args.do_eval and args.eval_steps > 0 and global_step % args.eval_steps == 0:
-                    results = evaluator.evaluate(model, prefix=f'step_{global_step}')
+                    results = evaluator.evaluate(model, prefix=f'step_{global_step}', tb_writer=tb_writer, global_step=global_step)
                     f1 = results["f1"]
                     if f1 > best_f1:
                         best_f1 = f1
                         best_global_step = global_step
+                        # Save model checkpoint
+                        output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        model_to_save = model.module if hasattr(model,
+                                                            'module') else model  # Take care of distributed/parallel training
+                        model_to_save.save_pretrained(output_dir)
+                        tokenizer.save_pretrained(output_dir)
+
+                        torch.save(args, os.path.join(output_dir, 'training_args.bin'))
+                        logger.info("Saving model checkpoint to %s", output_dir)
+
+                        torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                        torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                        logger.info("Saving optimizer and scheduler states to %s", output_dir)
                     logger.info(f"best f1 is {best_f1} on global step {best_global_step}")
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0 and \
                         (not args.save_if_best or (best_global_step == global_step)):
@@ -239,7 +254,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
     # if args.local_rank in [-1, 0]:
     #     tb_writer.close()
-
+    tb_writer.close()
     return global_step, tr_loss / global_step
 
 

@@ -179,7 +179,7 @@ def parse_args():
 
     parser.add_argument("--coarse_to_fine", action="store_true")
     parser.add_argument("--max_c", type=int, default=50)
-    parser.add_argument("--ffnn_size", type=int, default=3000)
+    parser.add_argument("--ffnn_size", type=int, default=3072)
     parser.add_argument("--apply_attended_reps", action="store_true")
     parser.add_argument("--separate_mention_logits", action="store_true")
     parser.add_argument("--separate_mention_reps", action="store_true")
@@ -187,7 +187,7 @@ def parse_args():
 
     parser.add_argument("--save_if_best", action="store_true")
     parser.add_argument("--batch_size_1", action="store_true")
-    parser.add_argument("--max_grad_norm", type=float, default=1.0)
+    parser.add_argument("--tensorboard_dir", type=str, required=True)
 
     args = parser.parse_args()
     return args

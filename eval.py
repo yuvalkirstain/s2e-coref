@@ -14,6 +14,7 @@ from decoding import Decoder
 from metrics import CorefEvaluator, MentionEvaluator
 from utils import write_examples, EVAL_DATA_FILE_NAME, EvalDataPoint, extract_clusters, \
     extract_mentions_to_predicted_clusters_from_clusters, extract_clusters_for_decode
+from conll import evaluate_conll
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class Evaluator:
         self.tokenizer = tokenizer
         self.sampling_prob = sampling_prob
 
-    def evaluate(self, model, prefix=""):
+    def evaluate(self, model, prefix="", tb_writer=None, global_step=None, official=False):
         eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
 
         if self.eval_output_dir and not os.path.exists(self.eval_output_dir) and self.args.local_rank in [-1, 0]:
@@ -46,7 +47,9 @@ class Evaluator:
         mention_evaluator = MentionEvaluator()
         coref_evaluator = CorefEvaluator()
         losses = defaultdict(list)
-        for batch in eval_dataloader:
+        doc_to_prediction = {}
+        doc_to_subtoken_map = {}
+        for (doc_key, subtoken_maps), batch in eval_dataloader:
             if random.random() > self.sampling_prob:
                 continue
 
@@ -121,6 +124,8 @@ class Evaluator:
                 mention_evaluator.update(predicted_mentions, gold_mentions)
                 coref_evaluator.update(predicted_clusters, gold_clusters, mention_to_predicted_clusters,
                                        mention_to_gold_clusters)
+                doc_to_prediction[doc_key] = predicted_clusters
+                doc_to_subtoken_map[doc_key] = subtoken_maps
 
         post_pruning_mention_precision, post_pruning_mentions_recall, post_pruning_mention_f1 = post_pruning_mention_evaluator.get_prf()
         mention_precision, mentions_recall, mention_f1 = mention_evaluator.get_prf()
@@ -144,6 +149,8 @@ class Evaluator:
                 logger.info(f"  {key} = {values:.3f}")
             else:
                 logger.info(f"  {key} = {values}")
+            if tb_writer is not None and global_step is not None:
+                tb_writer.add_scalar(key, values, global_step)
 
         if self.eval_output_dir:
             output_eval_file = os.path.join(self.eval_output_dir, "eval_results.txt")
@@ -161,4 +168,10 @@ class Evaluator:
         results["data"] = prefix
         with open(os.path.join(self.args.output_dir, "results.jsonl"), "a+") as f:
             f.write(json.dumps(results) + '\n')
+
+        if official:
+            conll_results = evaluate_conll("data/handmade.conll", doc_to_prediction, doc_to_subtoken_map)
+            official_f1 = sum(results["f"] for results in conll_results.values()) / len(conll_results)
+            logger.info('Official avg F1: %.4f' % official_f1)
+
         return results

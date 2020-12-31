@@ -88,7 +88,7 @@ def main():
     else:
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
-    config.hidden_dropout_prob = args.encoder_dropout_prob
+    #config.hidden_dropout_prob = args.encoder_dropout_prob
 
     if args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir=args.cache_dir)
@@ -177,7 +177,7 @@ def main():
     results = {}
 
     if args.do_eval and args.local_rank in [-1, 0]:
-        result = evaluator.evaluate(model, prefix="final_evaluation")
+        result = evaluator.evaluate(model, prefix="final_evaluation", official=True)
         results.update(result)
         return results
 

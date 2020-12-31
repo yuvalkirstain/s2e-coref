@@ -31,7 +31,7 @@ class BucketBatchSampler(DataLoader):
         self.padding_noise = padding_noise
         self.max_total_seq_len = max_total_seq_len
         self.data_source = data_source
-        data_source.examples.sort(key=lambda x: len(x.token_ids), reverse=True)
+        data_source.examples.sort(key=lambda x: len(x[1].token_ids), reverse=True)
         self.drop_last = drop_last
         self.batches = self.prepare_batches() if not batch_size_1 else self.prepare_eval_batches()
 
@@ -39,7 +39,7 @@ class BucketBatchSampler(DataLoader):
         batches = []
         batch = []
         per_example_batch_len = 0
-        for elem in self.data_source:
+        for _, elem in self.data_source:
             if len(batch) == 0:
                 # TODO change to config.attention_window
                 per_example_batch_len = self.calc_effective_per_example_batch_len(len(elem.token_ids))
@@ -69,8 +69,8 @@ class BucketBatchSampler(DataLoader):
 
     def prepare_eval_batches(self):
         batches = []
-        for elem in self.data_source:
+        for doc_key, elem in self.data_source:
             batch = self.data_source.pad_batch([elem], len(elem.token_ids))
-            batches.append(batch)
+            batches.append((doc_key, batch))
         return batches
 
