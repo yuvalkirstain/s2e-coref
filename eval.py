@@ -87,7 +87,7 @@ class Evaluator:
                     starts, end_offsets, coref_logits, mention_logits = output[-4:]
 
                     max_antecedents = np.argmax(coref_logits, axis=1).tolist()
-                    mention_to_antecedent = {((start, end), (starts[max_antecedent], end_offsets[max_antecedent])) for start, end, max_antecedent in
+                    mention_to_antecedent = {((int(start), int(end)), (int(starts[max_antecedent]), int(end_offsets[max_antecedent]))) for start, end, max_antecedent in
                                              zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
 
                     predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)

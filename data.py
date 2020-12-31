@@ -59,7 +59,7 @@ class CorefDataset(Dataset):
         for doc_key, words, clusters, speakers in examples:
             word_idx_to_start_token_idx = dict()
             word_idx_to_end_token_idx = dict()
-            end_token_idx_to_word_idx = dict()
+            end_token_idx_to_word_idx = [0]  # for <s>
 
             token_ids = []
             last_speaker = None
@@ -71,13 +71,13 @@ class CorefDataset(Dataset):
                     last_speaker = speaker
                 else:
                     speaker_prefix = []
-                for i in range(len(speaker_prefix)):
-                    end_token_idx_to_word_idx[len(token_ids) + i] = idx
+                for _ in range(len(speaker_prefix)):
+                    end_token_idx_to_word_idx.append(idx)
                 token_ids.extend(speaker_prefix)
                 word_idx_to_start_token_idx[idx] = len(token_ids) + 1  # +1 for <s>
                 tokenized = self.tokenizer.encode(" " + word, add_special_tokens=False)
-                for i in range(len(tokenized)):
-                    end_token_idx_to_word_idx[len(token_ids) + i] = idx
+                for _ in range(len(tokenized)):
+                    end_token_idx_to_word_idx.append(idx)
                 token_ids.extend(tokenized)
                 word_idx_to_end_token_idx[idx] = len(token_ids)  # old_seq_len + 1 (for <s>) + len(tokenized_word) - 1 (we start counting from zero) = len(token_ids)
 
@@ -90,7 +90,7 @@ class CorefDataset(Dataset):
                 cluster in clusters]
             lengths.append(len(token_ids))
 
-            coref_examples.append(((doc_key, list(end_token_idx_to_word_idx.values())), CorefExample(token_ids=token_ids, clusters=new_clusters)))
+            coref_examples.append(((doc_key, end_token_idx_to_word_idx), CorefExample(token_ids=token_ids, clusters=new_clusters)))
         return coref_examples, lengths, num_examples_filtered
 
     def __len__(self):
