@@ -46,9 +46,6 @@ class S2E(BertPreTrainedModel):
         self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
         self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
 
-        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
-        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
-
         self.mention_start_classifier = Linear(self.ffnn_size, 1)
         self.mention_end_classifier = Linear(self.ffnn_size, 1)
         self.mention_s2e_classifier = Linear(self.ffnn_size, self.ffnn_size)
@@ -215,12 +212,12 @@ class S2E(BertPreTrainedModel):
         # s2e
         temp = self.antecedent_s2e_classifier(top_k_start_coref_reps)  # [batch_size, max_k, dim]
         top_k_s2e_coref_logits = torch.matmul(temp,
-                                                    top_k_end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+                                              top_k_end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
         # e2s
         temp = self.antecedent_e2s_classifier(top_k_end_coref_reps)  # [batch_size, max_k, dim]
         top_k_e2s_coref_logits = torch.matmul(temp,
-                                                    top_k_start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
+                                              top_k_start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
         # final scores
         coref_logits = top_k_s2e_coref_logits + top_k_e2s_coref_logits + top_k_s2s_coref_logits + top_k_e2e_coref_logits  # [batch_size, max_k, max_k]
