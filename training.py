@@ -150,7 +150,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                             return_all_outputs=False)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             losses = outputs[-1]
-            logger.info(f"loss - {loss.item()}")
+            # logger.info(f"loss - {loss.item()}")
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
                 losses = {key: val.mean() for key, val in losses.items()}
