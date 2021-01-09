@@ -64,7 +64,6 @@ class CorefDataset(Dataset):
             token_ids = []
             last_speaker = None
             for idx, (word, speaker) in enumerate(zip(words, speakers)):
-                # TODO: fix tokenization to deal also with Whitespace
                 if last_speaker != speaker:
                     speaker_prefix = [SPEAKER_START] + self.tokenizer.encode(" " + speaker,
                                                                              add_special_tokens=False) + [SPEAKER_END]
@@ -190,11 +189,3 @@ def get_dataset(args, tokenizer, evaluate=False):
         pickle.dump(coref_dataset, f)
 
     return coref_dataset
-
-
-if __name__ == "__main__":
-    tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-    dataset = CorefDataset(file_path="data/train.english.jsonlines",
-                           tokenizer=tokenizer, max_seq_length=4500)
-    print(len(dataset))
-    print(dataset.num_examples_filtered)

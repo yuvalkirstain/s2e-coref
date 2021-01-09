@@ -2,30 +2,23 @@ import json
 import os
 import logging
 import random
-from collections import namedtuple, OrderedDict, defaultdict
-import pickle
+from collections import OrderedDict, defaultdict
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
-from torch import nn
 from coref_bucket_batch_sampler import BucketBatchSampler
 from data import get_dataset
-from decoding import Decoder
 from metrics import CorefEvaluator, MentionEvaluator
-from utils import write_examples, EVAL_DATA_FILE_NAME, EvalDataPoint, extract_clusters, \
-    extract_mentions_to_predicted_clusters_from_clusters, extract_clusters_for_decode
+from utils import extract_clusters, extract_mentions_to_predicted_clusters_from_clusters, extract_clusters_for_decode
 from conll import evaluate_conll
 
 logger = logging.getLogger(__name__)
 
 
 class Evaluator:
-    def __init__(self, args, tokenizer, sampling_prob=1.0):
+    def __init__(self, args, tokenizer):
         self.args = args
         self.eval_output_dir = args.output_dir
-        self.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
         self.tokenizer = tokenizer
-        self.sampling_prob = sampling_prob
 
     def evaluate(self, model, prefix="", tb_writer=None, global_step=None, official=False):
         eval_dataset = get_dataset(self.args, tokenizer=self.tokenizer, evaluate=True)
@@ -39,7 +32,6 @@ class Evaluator:
 
         # Eval!
         logger.info("***** Running evaluation {} *****".format(prefix))
-        logger.info("  Batch size = %d", self.eval_batch_size)
         logger.info("  Examples number: %d", len(eval_dataset))
         model.eval()
 
@@ -50,8 +42,6 @@ class Evaluator:
         doc_to_prediction = {}
         doc_to_subtoken_map = {}
         for (doc_key, subtoken_maps), batch in eval_dataloader:
-            if random.random() > self.sampling_prob:
-                continue
 
             batch = tuple(tensor.to(self.args.device) for tensor in batch)
             input_ids, attention_mask, start_entity_mentions_indices, end_entity_mentions_indices, start_antecedents_indices, end_antecedents_indices, gold_clusters = batch
@@ -83,40 +73,14 @@ class Evaluator:
                 mention_to_gold_clusters = extract_mentions_to_predicted_clusters_from_clusters(gold_clusters)
                 gold_mentions = list(mention_to_gold_clusters.keys())
 
-                if self.args.end_to_end:
-                    starts, end_offsets, coref_logits, mention_logits = output[-4:]
+                starts, end_offsets, coref_logits, mention_logits = output[-4:]
 
-                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
-                    mention_to_antecedent = {((int(start), int(end)), (int(starts[max_antecedent]), int(end_offsets[max_antecedent]))) for start, end, max_antecedent in
-                                             zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
+                max_antecedents = np.argmax(coref_logits, axis=1).tolist()
+                mention_to_antecedent = {((int(start), int(end)), (int(starts[max_antecedent]), int(end_offsets[max_antecedent]))) for start, end, max_antecedent in
+                                         zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
 
-                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
-                    candidate_mentions = list(zip(starts, end_offsets))
-                elif self.args.baseline:
-                    starts, end_offsets, coref_logits, mention_logits, antecedent_ids = output[-5:]
-                    max_antecedents = np.argmax(coref_logits, axis=1).tolist()
-                    if self.args.coarse_to_fine:
-                        max_antecedents = [antecedent_ids[i, j] if j < antecedent_ids.shape[-1] else len(starts) for i, j in enumerate(max_antecedents)]
-                    mention_to_antecedent = {((start, start + end_offest), (starts[max_antecedent], starts[max_antecedent] + end_offsets[max_antecedent])) for start, end_offest, max_antecedent in
-                                             zip(starts, end_offsets, max_antecedents) if max_antecedent < len(starts)}
-
-                    predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
-                    candidate_mentions = list(zip(starts, starts + end_offsets))
-                else:
-                    data_point = EvalDataPoint(*output)
-
-                    decoder = Decoder(use_mention_logits_for_antecedents=self.args.use_mention_logits_for_antecedents,
-                                      use_mention_oracle=self.args.use_mention_oracle,
-                                      gold_mentions=gold_mentions,
-                                      gold_clusters=gold_clusters,
-                                      use_crossing_mentions_pruning=self.args.use_crossing_mentions_pruning,
-                                      only_top_k=self.args.only_top_k)
-
-                    predicted_clusters, candidate_mentions = decoder.cluster_mentions(data_point.mention_logits,
-                                                                                      data_point.start_coref_logits,
-                                                                                      data_point.end_coref_logits,
-                                                                                      data_point.attention_mask,
-                                                                                      self.args.top_lambda)
+                predicted_clusters, _ = extract_clusters_for_decode(mention_to_antecedent)
+                candidate_mentions = list(zip(starts, end_offsets))
 
                 mention_to_predicted_clusters = extract_mentions_to_predicted_clusters_from_clusters(predicted_clusters)
                 predicted_mentions = list(mention_to_predicted_clusters.keys())

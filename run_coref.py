@@ -10,7 +10,7 @@ import torch
 
 from transformers import AutoConfig, AutoTokenizer, CONFIG_MAPPING, LongformerConfig, RobertaConfig
 
-from modeling import EndToEndCoreferenceResolutionModel, BaselineCoreferenceResolutionModel
+from modeling import S2E
 from data import get_dataset
 from cli import parse_args
 from training import train, set_seed
@@ -24,7 +24,6 @@ def main():
     args = parse_args()
     allowed_names = ["longformer", "roberta"]
     assert args.model_type in allowed_names
-    assert 0 <= args.pos_coeff <= 1
 
     transformers_logger = logging.getLogger("transformers")
     transformers_logger.setLevel(logging.ERROR)
@@ -100,44 +99,16 @@ def main():
             "and load it from here, using --tokenizer_name"
         )
 
-    if args.model_type == "longformer":
-        config_class = LongformerConfig
-        base_model_prefix = "longformer"
-    else:
-        config_class = RobertaConfig
-        base_model_prefix = "roberta"
+    config_class = LongformerConfig
+    base_model_prefix = "longformer"
 
-    if args.end_to_end:
-        EndToEndCoreferenceResolutionModel.config_class = config_class
-        EndToEndCoreferenceResolutionModel.base_model_prefix = base_model_prefix
-        model = EndToEndCoreferenceResolutionModel.from_pretrained(args.model_name_or_path,
-                                                                   config=config,
-                                                                   cache_dir=args.cache_dir,
-                                                                   args=args)
-    elif args.baseline:
-        BaselineCoreferenceResolutionModel.config_class = config_class
-        BaselineCoreferenceResolutionModel.base_model_prefix = base_model_prefix
-        model = BaselineCoreferenceResolutionModel.from_pretrained(args.model_name_or_path,
-                                                                   config=config,
-                                                                   cache_dir=args.cache_dir,
-                                                                   args=args)
-    else:
-        CoreferenceResolutionModel.config_class = config_class
-        CoreferenceResolutionModel.base_model_prefix = base_model_prefix
-        model = CoreferenceResolutionModel.from_pretrained(args.model_name_or_path,
-                                                           config=config,
-                                                           cache_dir=args.cache_dir,
-                                                           antecedent_loss=args.antecedent_loss,
-                                                           max_span_length=args.max_span_length,
-                                                           seperate_mention_loss=args.seperate_mention_loss,
-                                                           prune_mention_for_antecedents=args.prune_mention_for_antecedents,
-                                                           normalize_antecedent_loss=not args.not_normalize_antecedent_loss,
-                                                           only_joint_mention_logits=args.only_joint_mention_logits,
-                                                           no_joint_mention_logits=args.no_joint_mention_logits,
-                                                           pos_coeff=args.pos_coeff,
-                                                           zero_null_logits=args.zero_null_logits,
-                                                           args=args)
-        # model.resize_token_embeddings(len(tokenizer))
+    S2E.config_class = config_class
+    S2E.base_model_prefix = base_model_prefix
+    model = S2E.from_pretrained(args.model_name_or_path,
+                                config=config,
+                                cache_dir=args.cache_dir,
+                                args=args)
+
     model.to(args.device)
 
     if args.local_rank == 0:
@@ -146,8 +117,7 @@ def main():
 
     logger.info("Training/evaluation parameters %s", args)
 
-    sampling_prob = args.sampling_prob
-    evaluator = Evaluator(args, tokenizer, sampling_prob)
+    evaluator = Evaluator(args, tokenizer)
     # Training
     if args.do_train:
         train_dataset = get_dataset(args, tokenizer, evaluate=False)

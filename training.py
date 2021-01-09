@@ -27,14 +27,9 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     tb_writer = SummaryWriter(tb_path, flush_secs=30)
     logger.info('Tensorboard summary path: %s' % tb_path)
 
-    args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_dataloader = BucketBatchSampler(train_dataset, max_total_seq_len=args.max_total_seq_len, batch_size_1=args.batch_size_1)
 
-    if args.max_steps > 0:
-        t_total = args.max_steps
-        args.num_train_epochs = args.max_steps // (len(train_dataloader) // args.gradient_accumulation_steps) + 1
-    else:
-        t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+    t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Prepare optimizer and schedule (linear warmup and decay)
     no_decay = ['bias', 'LayerNorm.weight']
@@ -94,10 +89,6 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
-    logger.info("  Total train batch size (w. parallel, distributed & accumulation) = %d",
-                args.train_batch_size * args.gradient_accumulation_steps * (
-                    torch.distributed.get_world_size() if args.local_rank != -1 else 1))
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
 
@@ -166,16 +157,6 @@ def train(args, train_dataset, model, tokenizer, evaluator):
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            # if (loss > 1000 or str(loss.item()) == 'nan'):
-            #     logger.info(f"\nglobal_step: {global_step}")
-            #     for key, value in losses.items():
-            #         logger.info(f"\n{key}: {value}")
-            #     for example_input_ids in input_ids:
-            #         logger.info(tokenizer.convert_ids_to_tokens(example_input_ids)[:20])
-            #     log_batch_eval_results(outputs)
-            #     for example_input_ids in input_ids:
-            #         logger.info(example_input_ids[:20])
-
             if args.amp:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
@@ -184,10 +165,6 @@ def train(args, train_dataset, model, tokenizer, evaluator):
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
-                # if args.amp:
-                #     scaler.step(optimizer)
-                #     scaler.update()
-                # else:
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
@@ -212,8 +189,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
                         output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
                         if not os.path.exists(output_dir):
                             os.makedirs(output_dir)
-                        model_to_save = model.module if hasattr(model,
-                                                            'module') else model  # Take care of distributed/parallel training
+                        model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
                         model_to_save.save_pretrained(output_dir)
                         tokenizer.save_pretrained(output_dir)
 
@@ -252,8 +228,6 @@ def train(args, train_dataset, model, tokenizer, evaluator):
     with open(os.path.join(args.output_dir, f"best_f1.json"), "w") as f:
         json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
 
-    # if args.local_rank in [-1, 0]:
-    #     tb_writer.close()
     tb_writer.close()
     return global_step, tr_loss / global_step
 
