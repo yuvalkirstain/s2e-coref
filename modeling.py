@@ -214,30 +214,30 @@ class S2E(BertPreTrainedModel):
 
         # s2e
         temp = self.antecedent_s2e_classifier(top_k_start_coref_reps)  # [batch_size, max_k, dim]
-        top_k_start_end_coref_logits = torch.matmul(temp,
+        top_k_s2e_coref_logits = torch.matmul(temp,
                                                     top_k_end_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
         # e2s
         temp = self.antecedent_e2s_classifier(top_k_end_coref_reps)  # [batch_size, max_k, dim]
-        top_k_end_start_coref_logits = torch.matmul(temp,
+        top_k_e2s_coref_logits = torch.matmul(temp,
                                                     top_k_start_coref_reps.permute([0, 2, 1]))  # [batch_size, max_k, max_k]
 
         # final scores
-        coref_logits = top_k_start_end_coref_logits + top_k_end_start_coref_logits + top_k_mention_logits + top_k_s2s_coref_logits + top_k_e2e_coref_logits  # [batch_size, max_k, max_k]
-        coref_logits = top_k_mention_logits + coref_logits
-        coref_logits = self._mask_antecedent_logits(coref_logits, span_mask)
+        coref_logits = top_k_s2e_coref_logits + top_k_e2s_coref_logits + top_k_s2s_coref_logits + top_k_e2e_coref_logits  # [batch_size, max_k, max_k]
+        final_logits = top_k_mention_logits + coref_logits
+        final_logits = self._mask_antecedent_logits(final_logits, span_mask)
         # adding zero logits for null span
-        coref_logits = torch.cat((coref_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_k + 1]
+        final_logits = torch.cat((final_logits, torch.zeros((batch_size, max_k, 1), device=self.device)), dim=-1)  # [batch_size, max_k, max_k + 1]
 
         if return_all_outputs:
-            outputs = (span_starts, span_ends, coref_logits, mention_logits)
+            outputs = (span_starts, span_ends, final_logits, mention_logits)
         else:
             outputs = tuple()
 
         if gold_clusters is not None:
             losses = {}
             labels_after_pruning = self._get_cluster_labels_after_pruning(span_starts, span_ends, gold_clusters)
-            loss = self._get_marginal_log_likelihood_loss(coref_logits, labels_after_pruning, span_mask)
+            loss = self._get_marginal_log_likelihood_loss(final_logits, labels_after_pruning, span_mask)
             losses.update({"loss": loss})
             outputs = (loss,) + outputs + (losses,)
 

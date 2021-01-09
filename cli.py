@@ -132,7 +132,6 @@ def parse_args():
     parser.add_argument("--normalise_loss", action="store_true")
 
     parser.add_argument("--ffnn_size", type=int, default=3072)
-    parser.add_argument("--separate_mention_reps", action="store_true")
 
     parser.add_argument("--save_if_best", action="store_true")
     parser.add_argument("--batch_size_1", action="store_true")
