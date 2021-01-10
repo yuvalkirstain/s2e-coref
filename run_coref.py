@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
 
 def main():
     args = parse_args()
-    allowed_names = ["longformer", "roberta"]
-    assert args.model_type in allowed_names
 
     transformers_logger = logging.getLogger("transformers")
     transformers_logger.setLevel(logging.ERROR)
@@ -54,20 +52,22 @@ def main():
         args.n_gpu = 1
     args.device = device
 
-
-    with open(os.path.join(args.output_dir, 'args.pkl'), 'wb') as f:
-        pickle.dump(args, f)
-    with open(os.path.join(args.output_dir, 'args.txt'), 'w') as f:
-        f.write(str(args))
-
     # Setup logging
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+
+    with open(os.path.join(args.output_dir, 'args.txt'), 'w') as f:
+        f.write(str(args))
+
+    for key, val in vars(args).items():
+        logger.info(f"{key} - {val}")
+
     try:
         write_meta_data(args.output_dir, args)
     except git.exc.InvalidGitRepositoryError:
         logger.info("didn't save metadata - No git repo!")
+
 
     logger.info("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, amp training: %s",
                 args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.amp)

@@ -221,10 +221,7 @@ def train(args, train_dataset, model, tokenizer, evaluator):
         if 0 < t_total < global_step:
             train_iterator.close()
             break
-    if args.results_dir is None:
-        args.results_dir = args.output_dir
-    with open(os.path.join(args.results_dir, f"{args.experiment_name}_bestf1.json"), "w") as f:
-        json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
+
     with open(os.path.join(args.output_dir, f"best_f1.json"), "w") as f:
         json.dump({"best_f1": best_f1, "best_global_step": best_global_step}, f)
 
