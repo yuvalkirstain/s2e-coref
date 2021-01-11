@@ -45,6 +45,9 @@ class S2E(BertPreTrainedModel):
         self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
         self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
 
+        self.start_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
+        self.end_coref_mlp = FullyConnectedLayer(config, config.hidden_size, self.ffnn_size, args.dropout_prob) if self.do_mlps else None
+
         self.mention_start_classifier = Linear(self.ffnn_size, 1)
         self.mention_end_classifier = Linear(self.ffnn_size, 1)
         self.mention_s2e_classifier = Linear(self.ffnn_size, self.ffnn_size)
