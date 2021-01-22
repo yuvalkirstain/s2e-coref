@@ -1,15 +1,3 @@
-data
-.idea/inspectionProfiles
-.idea
 .python-version
-cache
-output_no_pos
-run_squad.py
-/output_old/
-output_pos
-output
-/dataset/
-/checkpoint-*/
-results
-graphs
-one-epoch
+data
+outputs

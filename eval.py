@@ -138,7 +138,7 @@ class Evaluator:
                 f.write(json.dumps(doc_to_prediction) + '\n')
                 f.write(json.dumps(doc_to_subtoken_map) + '\n')
 
-            conll_results = evaluate_conll("dataset/test.english.v4_gold_conll", doc_to_prediction, doc_to_subtoken_map)
+            conll_results = evaluate_conll(self.args.predict_file, doc_to_prediction, doc_to_subtoken_map)
             official_f1 = sum(results["f"] for results in conll_results.values()) / len(conll_results)
             logger.info('Official avg F1: %.4f' % official_f1)
 
