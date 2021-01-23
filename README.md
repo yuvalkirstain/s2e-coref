@@ -2,7 +2,13 @@
 
 This repository contains the code implementation from the paper ["Coreference Resolution without Span Representations"](https://arxiv.org/abs/2101.00434).
 
-
+- [Set up](#set-up)
+  * [Requirements](#requirements)
+  * [Download the official evaluation script](#download-the-official-evaluation-script)
+  * [Prepare the dataset](#prepare-the-dataset)
+- [Evaluation](#evaluation)
+- [Training](#training)
+- [Cite](#cite)
 
 ## Set up
 
@@ -28,10 +34,10 @@ Convert the original dataset into jsonlines format using:
 ```
 python minimize.py <data_dir>
 ``` 
-Credit: This script is originally from the [e2e-coref](https://github.com/kentonl/e2e-coref/) repo.
+Credit: This script was taken from the [e2e-coref](https://github.com/kentonl/e2e-coref/) repo.
 
 ## Evaluation
-Download our trained model from ....? and run:
+Download our trained model from [here](https://www.dropbox.com/sh/7hpw662xylbmi5o/AAC3nfP4xdGAkf0UkFGzAbrja?dl=0) and run:
 ```
 export OUTPUT_DIR=<output_dir>
 export CACHE_DIR=<cache_dir>
@@ -113,7 +119,7 @@ python run_coref.py \
         --tensorboard_dir=$OUTPUT_DIR/tb
 ```
 
-You can evaluate your trained model on the test set using the evaluation cmd.
+To evaluate your trained model on test go [here](#evaluation). 
 
 ## Cite
 

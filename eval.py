@@ -138,8 +138,9 @@ class Evaluator:
                 f.write(json.dumps(doc_to_prediction) + '\n')
                 f.write(json.dumps(doc_to_subtoken_map) + '\n')
 
-            conll_results = evaluate_conll(self.args.predict_file, doc_to_prediction, doc_to_subtoken_map)
-            official_f1 = sum(results["f"] for results in conll_results.values()) / len(conll_results)
-            logger.info('Official avg F1: %.4f' % official_f1)
+            if self.args.conll_path_for_eval is not None:
+                conll_results = evaluate_conll(self.args.conll_path_for_eval, doc_to_prediction, doc_to_subtoken_map)
+                official_f1 = sum(results["f"] for results in conll_results.values()) / len(conll_results)
+                logger.info('Official avg F1: %.4f' % official_f1)
 
         return results
