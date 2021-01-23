@@ -37,7 +37,15 @@ python minimize.py <data_dir>
 Credit: This script was taken from the [e2e-coref](https://github.com/kentonl/e2e-coref/) repo.
 
 ## Evaluation
-Download our trained model from [here](https://www.dropbox.com/sh/7hpw662xylbmi5o/AAC3nfP4xdGAkf0UkFGzAbrja?dl=0) and run:
+Download our trained model:
+ ```
+export MODEL_DIR=<model_dir>
+curl -L https://www.dropbox.com/sh/7hpw662xylbmi5o/AAC3nfP4xdGAkf0UkFGzAbrja?dl=1 > temp_model.zip
+unzip temp_model.zip -d $MODEL_DIR
+rm -rf temp_model.zip
+```
+
+and run:
 ```
 export OUTPUT_DIR=<output_dir>
 export CACHE_DIR=<cache_dir>
@@ -82,11 +90,10 @@ Train a coreference model using:
 ```
 export OUTPUT_DIR=<output_dir>
 export CACHE_DIR=<cache_dir>
-export MODEL_DIR=<model_dir>
 
 python run_coref.py \
-        --output_dir=<output_dir> \
-        --cache_dir=<cache_dir> \
+        --output_dir=$OUTPUT_DIR \
+        --cache_dir=$CACHE_DIR \
         --model_type=longformer \
         --model_name_or_path=allenai/longformer-large-4096 \
         --tokenizer_name=allenai/longformer-large-4096 \
