@@ -1,6 +1,6 @@
 # Coreference Resolution without Span Representations
 
-This repository contains the code implementation from the paper ["Coreference Resolution without Span Representations"](https://arxiv.org/abs/2101.00434).
+This repository contains the code implementation from the paper ["Coreference Resolution without Span Representations"](https://www.semanticscholar.org/paper/Coreference-Resolution-without-Span-Representations-Kirstain-Ram/3029263ca51e6c2907f9f99277083cf6afb1adb7).
 
 - [Set up](#set-up)
   * [Requirements](#requirements)
@@ -139,10 +139,10 @@ To evaluate your trained model on test go [here](#evaluation).
 If you use this code in your research, please cite our paper:
 
 ```
-@article{kirstain2021coreference,
+@inproceedings{Kirstain2021CoreferenceRW,
   title={Coreference Resolution without Span Representations},
-  author={Kirstain, Yuval and Ram, Ori and Levy, Omer},
-  journal={arXiv preprint arXiv:2101.00434},
+  author={Yuval Kirstain and Ori Ram and Omer Levy},
+  booktitle={ACL/IJCNLP},
   year={2021}
 }
 ```
